@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kudio-enhance"
+dynamic = ["version"]
+description = "Train and run learned speech-enhancement (denoising) models on top of the kudio audio toolkit."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE.txt"]
+authors = [{ name = "RL" }]
+keywords = [
+    "speech-enhancement", "denoising", "audio", "deep-learning",
+    "keras", "tensorflow", "spectrogram",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "kudio>=3.2",
+    "numpy>=1.22",
+    "PyYAML>=6.0",
+    "tensorflow>=2.16",
+]
+
+[project.optional-dependencies]
+eval = ["kudio[eval]>=3.2"]
+dev = ["kudio-enhance[eval]", "pytest>=7.0"]
+
+[project.scripts]
+kudio-enhance = "kudio_enhance.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/recklight/KudioEnhance"
+Issues = "https://github.com/recklight/KudioEnhance/issues"
+Kudio = "https://pypi.org/project/kudio/"
+
+[tool.setuptools.dynamic]
+# read from _version.py, not the package __init__: setuptools parses this file
+# statically, so building does not require the runtime dependencies
+version = { attr = "kudio_enhance._version.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
