@@ -57,9 +57,22 @@ def test_split_is_reproducible_for_a_given_seed():
 
 
 def test_tiny_sets_keep_everything_in_training():
-    pairs = [Pair("a.wav", "b.wav", "white", 0)]
-    train, val, test = split_pairs(pairs, 0.5, 0.5, seed=0)
-    assert (len(train), len(val), len(test)) == (1, 0, 0)
+    """Percentages on two examples would leave nothing to fit; the splits are
+    given up instead. An empty validation set is visible, a one-example
+    training set looks like it worked."""
+    pairs = [Pair("a.wav", "b.wav", "white", 0),
+             Pair("c.wav", "d.wav", "white", 5)]
+    train, val, test = split_pairs(pairs, 0.4, 0.4, seed=0)
+    assert (len(train), len(val), len(test)) == (2, 0, 0)
+
+
+def test_splits_that_leave_no_training_data_are_rejected():
+    """Since 3.5.0 these helpers come from kudio, which refuses the request
+    rather than silently handing everything to training: asking for a 50/50
+    val/test split is a mistake on any real dataset."""
+    pairs = [Pair(f"{i}.wav", f"c{i}.wav", "white", 0) for i in range(10)]
+    with pytest.raises(ValueError, match="leave something to train on"):
+        split_pairs(pairs, 0.5, 0.5, seed=0)
 
 
 def test_frame_wise_arrays_are_context_stacked(config):
@@ -93,3 +106,45 @@ def test_a_fitted_standardizer_is_reused_not_refitted(config):
 def test_build_arrays_needs_pairs(config):
     with pytest.raises(ValueError, match="no pairs"):
         build_arrays([], config, sequence=False)
+
+
+def test_history_helpers_round_trip(tmp_path):
+    """The curves used to be returned and dropped, which made "did it converge
+    or stop early?" unanswerable once the terminal closed."""
+    from kudio_enhance import load_history, save_history, summarise_history
+
+    curves = {"loss": [1.0, 0.6, 0.4, 0.45], "val_loss": [1.1, 0.7, 0.5, 0.55]}
+    path = save_history(tmp_path / "history.json", curves)
+    assert load_history(path) == curves
+
+    summary = summarise_history(curves)
+    assert summary["epochs"] == 4
+    assert summary["monitor"] == "val_loss"
+    assert summary["best"] == pytest.approx(0.5)
+    assert summary["best_epoch"] == 3
+    assert summary["improved"] is True
+
+
+def test_a_run_that_learned_nothing_says_so():
+    """The best epoch being the first one is what that looks like."""
+    from kudio_enhance import summarise_history
+
+    summary = summarise_history({"loss": [0.5, 0.6, 0.7]})
+    assert summary["monitor"] == "loss"          # falls back when val is absent
+    assert summary["best_epoch"] == 1
+    assert summary["improved"] is False
+
+
+def test_summarising_nothing_does_not_crash():
+    from kudio_enhance import summarise_history
+    assert summarise_history({})["best"] is None
+
+
+def test_save_history_accepts_a_keras_history_object(tmp_path):
+    from kudio_enhance import load_history, save_history
+
+    class FakeHistory:
+        history = {"loss": [np.float32(0.5), np.float32(0.25)]}
+
+    path = save_history(tmp_path / "h.json", FakeHistory())
+    assert load_history(path) == {"loss": [0.5, 0.25]}

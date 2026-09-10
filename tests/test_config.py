@@ -57,8 +57,15 @@ def test_n_bins_follows_n_fft():
 
 
 def test_win_length_follows_n_fft_unless_given():
-    assert AudioConfig(n_fft=256).win_length == 256
-    assert AudioConfig(n_fft=512, win_length=400).win_length == 400
+    assert AudioConfig(n_fft=256).window_length == 256
+    assert AudioConfig(n_fft=512, win_length=400).window_length == 400
+    # ...and keeps following it, rather than being frozen at construction:
+    # resolving it eagerly left a stale 512 behind after n_fft was lowered,
+    # and the geometry then refused to build at all
+    cfg = AudioConfig()
+    cfg.n_fft = 256
+    assert cfg.window_length == 256
+    assert cfg.stft.win_length == 256
 
 
 def test_run_paths_live_under_the_experiment(config):

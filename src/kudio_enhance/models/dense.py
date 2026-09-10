@@ -17,8 +17,14 @@ __all__ = ["build_ddae"]
 
 def build_ddae(input_dim: int, output_dim: int,
                units: Sequence[int] = (1024, 1024, 1024),
-               dropout: float = 0.1) -> keras.Model:
-    """Dense encoder/decoder with a linear output (log-power regression)."""
+               dropout: float = 0.1,
+               mask: bool = False) -> keras.Model:
+    """Dense encoder/decoder.
+
+    :param mask: end in a sigmoid instead of a linear layer. A mask lives in
+        ``[0, 1]``, so a bounded output cannot produce an impossible answer —
+        a linear head would spend part of its capacity learning not to.
+    """
     inputs = keras.Input(shape=(input_dim,), name="noisy_frame")
     x = inputs
     for i, width in enumerate(units):
@@ -27,5 +33,7 @@ def build_ddae(input_dim: int, output_dim: int,
         x = layers.Activation("relu", name=f"relu_{i}")(x)
         if dropout:
             x = layers.Dropout(dropout, name=f"drop_{i}")(x)
-    outputs = layers.Dense(output_dim, name="clean_frame")(x)
+    outputs = layers.Dense(output_dim,
+                           activation="sigmoid" if mask else None,
+                           name="mask_frame" if mask else "clean_frame")(x)
     return keras.Model(inputs, outputs, name="ddae")

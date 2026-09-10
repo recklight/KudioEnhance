@@ -56,7 +56,30 @@ Then denoise anything with the trained run:
 
 ```bash
 kudio-enhance denoise runs/exp1 noisy.wav enhanced.wav
+kudio-enhance denoise runs/exp1 noisy/ clean/ --recursive --report
 ```
+
+The folder form loads the model **once** for the whole tree, mirrors the input's
+directory structure, and with `--report` says how far the noise floor moved.
+
+And afterwards, whether it actually learned anything:
+
+```bash
+kudio-enhance curves -c config.yaml -n exp1
+```
+
+```
+3 epoch(s), monitoring val_loss
+  best   0.12172 at epoch 3
+  first  0.28104   last 0.12172
+```
+
+Keras returns the curves and almost every script drops them, which makes "did
+it converge, or stop early because validation was already climbing?"
+unanswerable the moment the terminal closes. They are written to
+`runs/exp1/history.json` (and `history.png` when matplotlib is around). If the
+best epoch was the *first* one the command says so and exits non-zero — that is
+what "this did not learn" looks like.
 
 ### Stage by stage
 
@@ -90,6 +113,7 @@ data:
 
 model:
   name: ddae                # ddae | blstm | conv_ae
+  target: spectrum          # spectrum | irm  -- see "What the network is asked to produce"
   context: 2                # frame-wise models: ±frames stacked into the input
   n_frames: 64              # sequence models: frames per training window
   units: [1024, 1024, 1024]
@@ -124,6 +148,42 @@ undefined time axis, so the same weights enhance a whole utterance in one pass.
 Adding an architecture is a builder function plus one `REGISTRY` entry —
 there is no `if/elif` chain to extend in three places.
 
+### What the network is asked to produce
+
+`model.target` is a separate choice from `model.name`, and every architecture
+supports both:
+
+| Target | The network outputs | |
+|---|---|---|
+| `spectrum` | the clean log-power spectrogram, directly | unbounded output; it has to learn the *level* as well as the shape |
+| `irm` | an **ideal ratio mask** in `[0, 1]` | bounded, so a sigmoid cannot produce an impossible answer, and the level comes from the input |
+
+```yaml
+model:
+  name: ddae
+  target: irm
+```
+
+The mask is `sqrt(|S|² / (|S|² + |N|²))` — how much of each time-frequency bin
+is speech — and applying it is an addition in the log domain, so the network
+only ever decides *how much to keep*.
+
+**Measured on this repo's own smoke corpus, three epochs of a small `ddae`:**
+
+| target | SI-SDR |
+|---|---|
+| `spectrum` | +0.05 → **−7.59 dB** |
+| `irm` | +0.05 → **+2.61 dB** |
+| an oracle mask | −3.02 → **+14.16 dB** |
+
+An undertrained spectrum model has not learned the level yet, so it outputs
+something loud and wrong; an undertrained mask model is already useful, because
+the worst it can do is keep or drop what was already there. The oracle row is
+the ceiling this target aims at.
+
+That is a tiny model on a tiny corpus, not a benchmark — but it is the reason
+mask targets are the usual choice, made visible in about twenty seconds.
+
 ## Datasets
 
 Point `clean_dir` and `noise_dir` at any two folders. Public sets that work
@@ -147,6 +207,21 @@ summary = pipeline.run(cfg, "exp1")          # synth + train + evaluate
 
 enh = Enhancer.load("runs/exp1")             # model + stats + config together
 clean = enh.enhance_file("noisy.wav", "enhanced.wav")
+result = enh.enhance_folder("noisy/", "clean/", report=True)
+print(result, result.mean_reduction_db())
+```
+
+The model is loaded once for the whole tree, and the result is a
+`kudio.EnhanceFolderResult` — the same shape `kudio.convert_folder` returns, so
+"I processed a folder" has one answer whatever did the processing.
+
+A trained run also drops straight into kudio's comparison table, beside the
+statistical methods:
+
+```python
+import kudio
+kudio.compare_enhancers(y, sr, ['logmmse', ('exp1', enh.enhance)],
+                        reference=clean)
 ```
 
 `Enhancer.load` reads the model, its normalisation statistics **and** the STFT
@@ -182,9 +257,14 @@ an optimisation setup.
 pytest -q
 ```
 
-The suite builds a tiny synthetic corpus in a temp directory and runs the whole
-pipeline — mix, train one epoch, enhance, score — in seconds. Tests that need
-TensorFlow skip cleanly when it is not installed.
+77 tests. The suite builds a tiny synthetic corpus in a temp directory and runs
+the whole pipeline — mix, train one epoch, enhance, score — in seconds. Tests
+that need TensorFlow skip cleanly when it is not installed.
+
+The mask tests check the *formula*, not just that it runs: all-speech gives 1,
+all-noise gives 0, equal power gives 1/√2, and an oracle mask has to actually
+improve SI-SDR. Those hold or the target is wrong, whatever the loss curve
+says.
 
 ## Known limits
 
@@ -193,6 +273,17 @@ TensorFlow skip cleanly when it is not installed.
   more.
 - Magnitude-only enhancement: the phase is the noisy input's. Phase-aware or
   time-domain models are a different architecture family.
+- The `irm` target needs the noise, and takes it as `noisy - clean` in the time
+  domain. That is exact for anything `kudio.Synthesizer` mixed, and wrong for a
+  corpus whose noisy and clean files are separate recordings rather than a sum.
+
+### Since 3.5.0
+
+`Pair`, `save_manifest`, `load_manifest` and `split_pairs` now come from
+**kudio** — nothing in them was specific to denoising. The JSON on disk is
+unchanged and the names are still importable from `kudio_enhance.data`, but
+kudio's `split_pairs` is stricter: `val_split + test_split >= 1.0` raises
+instead of quietly handing everything to training.
 
 ## Related
 

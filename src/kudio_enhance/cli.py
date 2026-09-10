@@ -7,7 +7,9 @@
     kudio-enhance train    -c config.yaml -n exp1 # stage 2: fit the model
     kudio-enhance evaluate -c config.yaml -n exp1 # stage 3: score the test split
     kudio-enhance run      -c config.yaml -n exp1 # all three
+    kudio-enhance curves   -c config.yaml -n exp1 # did it actually learn?
     kudio-enhance denoise runs/exp1 noisy.wav out.wav
+    kudio-enhance denoise runs/exp1 noisy/ clean/ --recursive --report
 """
 from __future__ import annotations
 
@@ -50,10 +52,22 @@ def _parser() -> argparse.ArgumentParser:
             p.add_argument("--full", action="store_true",
                            help="also compute PESQ/STOI/SDR (needs kudio[eval])")
 
-    denoise = sub.add_parser("denoise", help="enhance a file with a trained run")
+    denoise = sub.add_parser("denoise",
+                             help="enhance a file, or a folder, with a trained run")
     denoise.add_argument("run_dir", help="e.g. runs/exp1")
     denoise.add_argument("input")
     denoise.add_argument("output")
+    denoise.add_argument("--recursive", action="store_true",
+                         help="treat input/output as folders; the model is "
+                              "loaded once for the whole tree")
+    denoise.add_argument("--report", action="store_true",
+                         help="also measure each file's noise floor "
+                              "before and after (folder mode)")
+
+    curves = sub.add_parser("curves",
+                            help="what the training run's history says")
+    curves.add_argument("-c", "--config", required=True, help="YAML config")
+    curves.add_argument("-n", "--name", required=True, help="experiment name")
     return parser
 
 
@@ -88,12 +102,44 @@ def main(argv=None) -> int:
     if args.command == "denoise":
         from kudio_enhance.inference import Enhancer
         enhancer = Enhancer.load(args.run_dir)
+        if args.recursive:
+            result = enhancer.enhance_folder(args.input, args.output,
+                                             report=args.report)
+            print(f"{result.written}/{result.total} file(s) -> {args.output}")
+            reduction = result.mean_reduction_db()
+            if reduction is not None:
+                print(f"  noise floor down {reduction:.1f} dB on average")
+            for path, reason in result.failed[:10]:
+                print(f"  failed: {path.name}: {reason}")
+            return 1 if result.failed else 0
         enhancer.enhance_file(args.input, args.output)
         print(f"wrote {args.output}")
         return 0
 
     from kudio_enhance import pipeline
     cfg = _load(args)
+
+    if args.command == "curves":
+        from kudio_enhance.train import load_history, summarise_history
+        path = cfg.history_path(args.name)
+        if not path.is_file():
+            print(f"{path} not found — train the model first", file=sys.stderr)
+            return 1
+        history = load_history(path)
+        summary = summarise_history(history)
+        print(f"{summary['epochs']} epoch(s), monitoring {summary['monitor']}")
+        if summary["best"] is None:
+            print("  no curves recorded")
+            return 1
+        print(f"  best   {summary['best']:.5f} at epoch {summary['best_epoch']}")
+        print(f"  first  {summary['first']:.5f}   last {summary['last']:.5f}")
+        if not summary["improved"]:
+            # the failure mode worth naming: it ran, it saved, it learned nothing
+            print("  the first epoch was the best one — this did not learn")
+            return 1
+        if summary["epochs"] < cfg.train.epochs:
+            print(f"  stopped early ({cfg.train.epochs} configured)")
+        return 0
 
     if args.command == "synth":
         pairs = pipeline.synthesize(cfg, args.name)

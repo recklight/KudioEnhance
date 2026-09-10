@@ -39,9 +39,18 @@ class AudioConfig:
     sr: int = 16000
     n_fft: int = 512
     hop_length: int = 256
-    #: defaults to n_fft, so changing n_fft alone stays valid
+    #: ``None`` means "follow n_fft", and is left as ``None`` rather than being
+    #: resolved at construction — resolving it froze the value, so setting
+    #: ``cfg.audio.n_fft = 256`` afterwards left a stale 512 behind and the
+    #: geometry stopped being buildable. Read :attr:`window_length` for the
+    #: number.
     win_length: Optional[int] = None
     window: str = "hamming"
+
+    @property
+    def window_length(self) -> int:
+        """The window actually used: *win_length*, or *n_fft* when unset."""
+        return self.n_fft if self.win_length is None else self.win_length
 
     @property
     def stft(self) -> "kudio.STFT":
@@ -61,14 +70,12 @@ class AudioConfig:
         return self.stft.n_bins
 
     def __post_init__(self) -> None:
-        if self.win_length is None:
-            self.win_length = self.n_fft
-        if self.win_length > self.n_fft:
+        if self.win_length is not None and self.win_length > self.n_fft:
             raise ValueError(f"win_length ({self.win_length}) cannot exceed "
                              f"n_fft ({self.n_fft})")
-        if self.hop_length > self.win_length:
+        if self.hop_length > self.window_length:
             raise ValueError(f"hop_length ({self.hop_length}) cannot exceed "
-                             f"win_length ({self.win_length})")
+                             f"win_length ({self.window_length})")
 
 
 @dataclass
@@ -92,11 +99,26 @@ class DataConfig:
             raise ValueError("val_split + test_split must be in [0, 1)")
 
 
+#: What the network is asked to produce.
+#:
+#: ``spectrum`` regresses the clean log-power spectrogram directly. Simple, and
+#: it has to learn the *level* of the speech as well as its shape — including
+#: for bins that are pure noise, where there is nothing to learn.
+#:
+#: ``irm`` predicts an ideal ratio mask instead: one number per bin saying how
+#: much of the noisy signal to keep. The target is bounded in [0, 1], so a
+#: sigmoid output cannot produce an impossible answer, and the level comes from
+#: the input rather than having to be reconstructed. It is the usual reason a
+#: mask beats direct regression.
+TARGETS = ("spectrum", "irm")
+
+
 @dataclass
 class ModelConfig:
     """Architecture selection and its hyper-parameters."""
 
     name: str = "ddae"
+    target: str = "spectrum"       # see TARGETS
     context: int = 2               # frame-wise models: +/- frames stacked in
     n_frames: int = 64             # sequence models: frames per training window
     units: List[int] = field(default_factory=lambda: [1024, 1024, 1024])
@@ -107,6 +129,20 @@ class ModelConfig:
             raise ValueError("context must be >= 0")
         if self.n_frames < 1:
             raise ValueError("n_frames must be >= 1")
+        if self.target not in TARGETS:
+            raise ValueError(
+                f"unknown target {self.target!r}. Choose from "
+                f"{', '.join(TARGETS)}")
+
+    @property
+    def predicts_mask(self) -> bool:
+        """Does the network output a mask rather than a spectrogram?
+
+        It decides three things at once — the training target, the output
+        activation, and what inference does with the prediction — so it is
+        asked in one place instead of being re-derived in three.
+        """
+        return self.target == "irm"
 
 
 @dataclass
@@ -185,3 +221,7 @@ class Config:
 
     def report_path(self, name: str) -> Path:
         return self.run_dir(name) / "report.csv"
+
+    def history_path(self, name: str) -> Path:
+        """Where the training curves land. See :func:`kudio_enhance.save_history`."""
+        return self.run_dir(name) / "history.json"

@@ -24,6 +24,9 @@ from kudio_enhance.config import (
 )
 from kudio_enhance.data import Pair
 from kudio_enhance.features import Standardizer
+# training curves: importable without TensorFlow, so a finished run can be
+# inspected from anywhere
+from kudio_enhance.train import load_history, save_history, summarise_history
 
 _logging.getLogger(__name__).addHandler(_logging.NullHandler())
 
@@ -37,4 +40,7 @@ __all__ = [
     "TrainConfig",
     "Pair",
     "Standardizer",
+    "save_history",
+    "load_history",
+    "summarise_history",
 ]

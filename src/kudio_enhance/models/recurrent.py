@@ -15,8 +15,11 @@ __all__ = ["build_blstm"]
 
 
 def build_blstm(n_bins: int, units: Sequence[int] = (256, 256),
-                dropout: float = 0.1) -> keras.Model:
-    """Stacked BLSTM with a time-distributed linear head."""
+                dropout: float = 0.1, mask: bool = False) -> keras.Model:
+    """Stacked BLSTM with a time-distributed head.
+
+    :param mask: sigmoid output for a bounded mask; linear otherwise.
+    """
     inputs = keras.Input(shape=(None, n_bins), name="noisy_spec")
     x = inputs
     for i, width in enumerate(units):
@@ -25,5 +28,6 @@ def build_blstm(n_bins: int, units: Sequence[int] = (256, 256),
         if dropout:
             x = layers.Dropout(dropout, name=f"drop_{i}")(x)
     outputs = layers.TimeDistributed(
-        layers.Dense(n_bins), name="clean_spec")(x)
+        layers.Dense(n_bins, activation="sigmoid" if mask else None),
+        name="mask_spec" if mask else "clean_spec")(x)
     return keras.Model(inputs, outputs, name="blstm")

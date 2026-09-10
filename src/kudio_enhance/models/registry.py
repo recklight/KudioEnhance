@@ -37,21 +37,24 @@ def _ddae(cfg: Config):
     return build_ddae(input_dim=bins * (2 * cfg.model.context + 1),
                       output_dim=bins,
                       units=cfg.model.units,
-                      dropout=cfg.model.dropout)
+                      dropout=cfg.model.dropout,
+                      mask=cfg.model.predicts_mask)
 
 
 def _blstm(cfg: Config):
     from kudio_enhance.models.recurrent import build_blstm
     return build_blstm(n_bins=cfg.audio.n_bins,
                        units=cfg.model.units,
-                       dropout=cfg.model.dropout)
+                       dropout=cfg.model.dropout,
+                       mask=cfg.model.predicts_mask)
 
 
 def _conv_ae(cfg: Config):
     from kudio_enhance.models.convolutional import build_conv_ae
     return build_conv_ae(n_bins=cfg.audio.n_bins,
                          filters=cfg.model.units,
-                         dropout=cfg.model.dropout)
+                         dropout=cfg.model.dropout,
+                         mask=cfg.model.predicts_mask)
 
 
 REGISTRY: Dict[str, ModelSpec] = {
@@ -89,5 +92,6 @@ def build_model(cfg: Config):
     and inspected without committing to an optimiser.
     """
     model = _spec(cfg.model.name).builder(cfg)
-    log.info("built %s: %d parameters", cfg.model.name, model.count_params())
+    log.info("built %s (%s target): %d parameters",
+             cfg.model.name, cfg.model.target, model.count_params())
     return model

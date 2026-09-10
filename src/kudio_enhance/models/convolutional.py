@@ -17,8 +17,16 @@ __all__ = ["build_conv_ae"]
 
 
 def build_conv_ae(n_bins: int, filters: Sequence[int] = (256, 256, 256),
-                  kernel_size: int = 5, dropout: float = 0.1) -> keras.Model:
-    """Stacked dilated Conv1D with a residual connection to the input."""
+                  kernel_size: int = 5, dropout: float = 0.1,
+                  mask: bool = False) -> keras.Model:
+    """Stacked dilated Conv1D.
+
+    :param mask: predict a mask through a sigmoid instead of a residual
+        correction. The residual shortcut is dropped in that case — "add this
+        to the input" and "keep this fraction of the input" are different
+        parameterisations, and combining them would make the sigmoid an
+        offset rather than a proportion.
+    """
     inputs = keras.Input(shape=(None, n_bins), name="noisy_spec")
     x = inputs
     for i, width in enumerate(filters):
@@ -28,6 +36,10 @@ def build_conv_ae(n_bins: int, filters: Sequence[int] = (256, 256, 256),
         x = layers.Activation("relu", name=f"relu_{i}")(x)
         if dropout:
             x = layers.Dropout(dropout, name=f"drop_{i}")(x)
-    residual = layers.Conv1D(n_bins, 1, padding="same", name="residual")(x)
-    outputs = layers.Add(name="clean_spec")([inputs, residual])
+    if mask:
+        outputs = layers.Conv1D(n_bins, 1, padding="same",
+                                activation="sigmoid", name="mask_spec")(x)
+    else:
+        residual = layers.Conv1D(n_bins, 1, padding="same", name="residual")(x)
+        outputs = layers.Add(name="clean_spec")([inputs, residual])
     return keras.Model(inputs, outputs, name="conv_ae")

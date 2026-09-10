@@ -17,6 +17,7 @@ import kudio
 from kudio_enhance.config import Config
 from kudio_enhance.features import (
     Standardizer,
+    apply_mask,
     spectrogram,
     stack_context,
     to_waveform,
@@ -40,6 +41,7 @@ class Enhancer:
         self.standardizer = standardizer
         self.cfg = cfg
         self.sequence = is_sequence(cfg.model.name)
+        self.mask = cfg.model.predicts_mask
 
     # ---------------------------------------------------------------- load
 
@@ -59,7 +61,14 @@ class Enhancer:
     # ------------------------------------------------------------- enhance
 
     def enhance(self, y: np.ndarray, sr: Optional[int] = None) -> np.ndarray:
-        """Denoise a waveform, returning one the same length as the input."""
+        """Denoise a waveform, returning one the same length as the input.
+
+        What the prediction *means* comes from the run directory's config, not
+        from a guess about its shape: a mask model's output is multiplied into
+        the noisy spectrum, a spectrum model's is un-normalised. Getting that
+        backwards produces audio, just not the right audio — which is exactly
+        why the config travels with the weights.
+        """
         if sr is not None and sr != self.cfg.audio.sr:
             raise ValueError(
                 f"expected {self.cfg.audio.sr} Hz (the rate this model was "
@@ -78,11 +87,20 @@ class Enhancer:
             stacked = stack_context(normalised, self.cfg.model.context)
             predicted = self.model.predict(stacked, verbose=0)
 
-        enhanced_spec = self.standardizer.inverse(predicted)[:len(spec)]
+        predicted = predicted[:len(spec)]
+        if self.mask:
+            enhanced_spec = apply_mask(spec[:len(predicted)], predicted)
+        else:
+            enhanced_spec = self.standardizer.inverse(predicted)
         return to_waveform(y, enhanced_spec, self.cfg.audio)
 
     def enhance_file(self, src, dst=None, subtype: str = "PCM_16") -> np.ndarray:
-        """Enhance *src*; write to *dst* when given. Returns the waveform."""
+        """Enhance *src*; write to *dst* when given. Returns the waveform.
+
+        The file is read at the model's rate, so a corpus at another rate is
+        resampled on the way in rather than being fed to a model that was never
+        trained for it.
+        """
         y, sr = kudio.file_load(src, sr=self.cfg.audio.sr)
         enhanced = self.enhance(y)
         if dst is not None:
@@ -91,3 +109,33 @@ class Enhancer:
             kudio.save_wave(dst, enhanced, sr, subtype=subtype)
             log.info("enhanced %s -> %s", Path(src).name, dst)
         return enhanced
+
+    def enhance_folder(self, src, dst, *, subtype: str = "PCM_16",
+                       overwrite: bool = False, progress=None,
+                       on_error: str = "collect", report: bool = False):
+        """Enhance every audio file under *src* into *dst*.
+
+        >>> result = Enhancer.load('runs/exp1').enhance_folder('noisy/', 'clean/')
+        >>> print(result)
+        412/412 written, 0 failed
+
+        The model is loaded once and reused, which is the whole point — the
+        obvious loop over :meth:`enhance_file` is correct and reloads nothing,
+        but a caller writing it themselves usually reloads per file.
+
+        Output mirrors the input's directory structure, so two files with the
+        same name in different subfolders do not collide. Returns a
+        :class:`kudio.EnhanceFolderResult`; with ``report=True`` it also carries
+        each file's noise floor before and after.
+
+        :param on_error: ``'collect'`` records the failure and carries on;
+            ``'raise'`` stops at the first one.
+        """
+        return kudio.enhance_folder(
+            src, dst,
+            # kudio dispatches on the method name; here the "method" is this
+            # model, so it goes through the custom-enhancer door
+            method=kudio.CustomEnhancer(name=self.cfg.model.name,
+                                        fn=lambda y, sr: self.enhance(y)),
+            sr=self.cfg.audio.sr, subtype=subtype, overwrite=overwrite,
+            progress=progress, on_error=on_error, report=report)

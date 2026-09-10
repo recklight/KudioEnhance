@@ -70,7 +70,13 @@ def train(cfg: Config, name: str, *, epochs: Optional[int] = None,
           verbose: int = 1):
     """Build the arrays, fit the model, and save everything needed to reuse it."""
     from kudio_enhance.models import build_model, is_sequence
-    from kudio_enhance.train import compile_model, fit
+    from kudio_enhance.train import (
+        compile_model,
+        fit,
+        plot_history,
+        save_history,
+        summarise_history,
+    )
 
     sequence = is_sequence(cfg.model.name)
     train_pairs = _load_split(cfg, name, "train")
@@ -93,6 +99,19 @@ def train(cfg: Config, name: str, *, epochs: Optional[int] = None,
 
     standardizer.save(cfg.stats_path(name))
     cfg.to_yaml(cfg.run_dir(name) / "config.yaml")
+
+    # the curves used to be returned and dropped, which made "did it converge,
+    # or stop early because validation was already climbing?" unanswerable once
+    # the terminal closed
+    save_history(cfg.history_path(name), history)
+    plot_history(history, cfg.run_dir(name) / "history.png", title=name)
+    summary = summarise_history(history)
+    if summary["best"] is not None:
+        log.info("%s: %d epoch(s), best %s %.5f at epoch %d%s",
+                 name, summary["epochs"], summary["monitor"], summary["best"],
+                 summary["best_epoch"],
+                 "" if summary["improved"]
+                 else " — no improvement over the first epoch")
     return history
 
 

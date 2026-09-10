@@ -6,9 +6,10 @@ builders and every experiment shares one optimisation setup.
 """
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -16,7 +17,8 @@ from kudio_enhance.config import Config
 
 log = logging.getLogger(__name__)
 
-__all__ = ["compile_model", "build_callbacks", "fit"]
+__all__ = ["compile_model", "build_callbacks", "fit",
+           "save_history", "load_history", "summarise_history", "plot_history"]
 
 
 def compile_model(model, cfg: Config):
@@ -70,3 +72,93 @@ def fit(model, x: np.ndarray, y: np.ndarray, cfg: Config, model_path,
     model.save(str(model_path))
     log.info("saved model -> %s", model_path)
     return history
+
+
+# --------------------------------------------------------------------- curves
+
+def save_history(path, history) -> Path:
+    """Write the training curves next to the model.
+
+    Keras returns them and almost every script drops them on the floor, which
+    means "did it converge, or did it stop early because the validation loss
+    was already climbing?" becomes unanswerable the moment the terminal is
+    closed. A checkpoint without its curves is a number with no working.
+
+    Accepts a Keras ``History``, its ``.history`` dict, or any mapping.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    curves = getattr(history, "history", history) or {}
+    plain = {key: [float(v) for v in values] for key, values in curves.items()}
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(plain, fh, indent=2)
+    return path
+
+
+def load_history(path) -> Dict[str, List[float]]:
+    with open(path, "r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def summarise_history(history, monitor: str = "val_loss") -> Dict[str, object]:
+    """The three things worth knowing, without opening a plot.
+
+    ``epochs`` is how many actually ran — shorter than configured means early
+    stopping fired — ``best`` and ``best_epoch`` say where the kept weights came
+    from, and ``improved`` is False when the best epoch was the *first* one,
+    which is what "this did not learn anything" looks like.
+    """
+    curves = getattr(history, "history", history) or {}
+    key = monitor if monitor in curves else ("loss" if "loss" in curves else None)
+    if key is None:
+        return {"epochs": 0, "monitor": monitor, "best": None,
+                "best_epoch": None, "improved": False}
+
+    values = [float(v) for v in curves[key]]
+    best_index = int(np.argmin(values))
+    return {
+        "epochs": len(values),
+        "monitor": key,
+        "best": values[best_index],
+        "best_epoch": best_index + 1,
+        "first": values[0],
+        "last": values[-1],
+        "improved": bool(best_index > 0 and values[best_index] < values[0]),
+    }
+
+
+def plot_history(history, path, title: str = "training") -> Optional[Path]:
+    """Draw the curves, if matplotlib is around.
+
+    Returns ``None`` rather than raising when it is not: a missing plotting
+    library must never cost you a finished training run.
+    """
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:
+        log.info("matplotlib not installed; skipping the training plot "
+                 "(the curves are still in history.json)")
+        return None
+
+    curves = getattr(history, "history", history) or {}
+    if not curves:
+        return None
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    figure, axes = plt.subplots(figsize=(7, 4))
+    for key, values in curves.items():
+        if key.endswith("loss"):
+            axes.plot(range(1, len(values) + 1), values, label=key)
+    axes.set_xlabel("epoch")
+    axes.set_ylabel("loss")
+    axes.set_title(title)
+    axes.grid(alpha=0.3)
+    if axes.get_legend_handles_labels()[0]:
+        axes.legend()
+    figure.tight_layout()
+    figure.savefig(str(path), dpi=120)
+    plt.close(figure)
+    return path
