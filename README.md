@@ -106,6 +106,10 @@ data:
   noise_dir: data/noise
   mixed_dir: runs/mixed
   snr_db: [-5, 0, 5]
+  rt60: []                  # reverberation times in seconds; [] = no rooms
+  drr_db: 0.0               # how close the microphone is, in dB
+  reverberant_target: false # train to remove the noise and leave the room
+  channel: null             # telephone / voip / mu_law / a_law, or null
   mode: regular             # 'regular' = one mix per clean file; 'inc' = every combination
   seed: 17                  # makes the mixture and the splits reproducible
   val_split: 0.1
@@ -184,6 +188,61 @@ the ceiling this target aims at.
 That is a tiny model on a tiny corpus, not a benchmark — but it is the reason
 mask targets are the usual choice, made visible in about twenty seconds.
 
+## Rooms
+
+Noise is additive and a room is convolutive, and a real recording has both.
+`data.rt60` puts the speech through a room before the noise is mixed in:
+
+```yaml
+data:
+  snr_db: [-5, 0, 5]
+  rt60: [0.3, 0.6, 0.9]     # a fourth axis -- in `inc` mode, x3 the files
+  drr_db: 0.0               # +10 is a close mic, 0 is a metre or two
+```
+
+The SNR is then measured against the **reverberant** speech, because that is
+what is competing with the noise at the microphone.
+
+**By default the clean file stays the target.** A model trained on that is
+asked to undo the room as well as the noise, which is a standard setup and a
+choice worth making on purpose rather than discovering.
+
+`reverberant_target: true` changes it. `kudio.Synthesizer` then writes the
+reverberant-but-clean signal to `TARGETS/` beside each mixture — the same
+speech with the room left on — and training asks the model to remove the
+noise and **leave** the room, which is a different and easier problem, and
+the honest one when the deployment keeps its room.
+
+It also makes the `irm` target correct. The mask is built from
+`noisy - reference`, and with a room on the speech the dry clean file is not
+what was mixed, so that subtraction hands the reverberation to the *noise*
+and the mask asks the model to strip the room's own tail as if it were noise.
+Against the reverberant target the subtraction is the noise again.
+
+Each mixture records the room it was built in — `Pair.rt60`, and the file name
+carries it too (`speech_white_0dB_rt600ms.wav`), so a manifest says what every
+example was asked to survive.
+
+## The channel
+
+The third kind of degradation, and the one that is neither additive nor
+convolutive: a codec quantises, a link drops packets, a converter throws bits
+away.
+
+```yaml
+data:
+  channel: telephone        # 300-3400 Hz at 8 kHz through G.711
+```
+
+`telephone`, `telephone_a`, `voip` (G.711 with 5% of packets lost in runs of
+four, held), `mu_law`, `a_law`. It is applied to the **mixture**, noise and
+all, because a wire carries whatever reached the microphone.
+
+**It is not an axis.** Unlike `snr_db` and `rt60` it is constant for the
+dataset and does not appear in the file names: a corpus is recorded over a
+phone line or it is not. `Pair.channel` records which link, and the target
+does not go down it — asking a model to reproduce G.711 is not denoising.
+
 ## Datasets
 
 Point `clean_dir` and `noise_dir` at any two folders. Public sets that work
@@ -257,7 +316,7 @@ an optimisation setup.
 pytest -q
 ```
 
-77 tests. The suite builds a tiny synthetic corpus in a temp directory and runs
+84 tests. The suite builds a tiny synthetic corpus in a temp directory and runs
 the whole pipeline — mix, train one epoch, enhance, score — in seconds. Tests
 that need TensorFlow skip cleanly when it is not installed.
 

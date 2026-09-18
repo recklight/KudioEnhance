@@ -33,16 +33,19 @@ from kudio_enhance.features import (
 log = logging.getLogger(__name__)
 
 __all__ = ["Pair", "synthesize", "save_manifest", "load_manifest",
-           "split_pairs", "build_arrays"]
+           "split_pairs", "build_arrays", "reference_for"]
 
 
 # --------------------------------------------------------------------- mixing
 
 def synthesize(cfg: Config, name: str) -> List[Pair]:
-    """Mix clean × noise at the configured SNRs and record the pairing."""
+    """Mix clean × noise × SNR (× room) and record the pairing."""
     data = cfg.data
     syx = kudio.Synthesizer(data.clean_dir, data.noise_dir,
-                            out_path=data.mixed_dir, snr_ratio=data.snr_db)
+                            out_path=data.mixed_dir, snr_ratio=data.snr_db,
+                            rt60=data.rt60 or None, drr_db=data.drr_db,
+                            channel=data.channel,
+                            write_targets=data.reverberant_target)
     # be explicit: the mixture on disk should be at the rate the model trains
     # on, whatever the source corpus happens to be
     produced = syx.syn(mode=data.mode, seed=data.seed, overwrite=True,
@@ -52,9 +55,10 @@ def synthesize(cfg: Config, name: str) -> List[Pair]:
             f"synthesis produced nothing — check {data.clean_dir!r} and "
             f"{data.noise_dir!r}")
 
-    pairs = [Pair(noisy=str(noisy), clean=str(clean), noise=Path(noise).stem,
-                  snr_db=int(snr))
-             for noisy, clean, noise, snr in produced]
+    # `syn` returns four-tuples and always has -- the room travels in the
+    # manifest, where it is attached to the output path it belongs to rather
+    # than held in a list that has to stay in step
+    pairs = syx.manifest()
     missing = [p for p in pairs if not p.exists()]
     if missing:
         log.warning("%d/%d mixtures missing on disk, dropping them",
@@ -65,8 +69,38 @@ def synthesize(cfg: Config, name: str) -> List[Pair]:
         pairs = pairs[:data.max_files]
 
     save_manifest(cfg.manifest_path(name), pairs)
-    log.info("synthesized %d pair(s) -> %s", len(pairs), data.mixed_dir)
+    if data.reverberant:
+        log.info("synthesized %d pair(s) in rooms of %s s -> %s",
+                 len(pairs), data.rt60, data.mixed_dir)
+        if data.reverberant_target:
+            log.info("training against the reverberant target, so the model "
+                     "is being asked to remove the noise and leave the room")
+        else:
+            log.info("the clean file is still the target, so the model is "
+                     "being asked to undo the room as well as the noise")
+    else:
+        log.info("synthesized %d pair(s) -> %s", len(pairs), data.mixed_dir)
+    if syx.channel_tag:
+        log.info("every mixture went down a %s link, and the target did not, "
+                 "so the model is being asked to undo that too",
+                 syx.channel_tag)
     return pairs
+
+
+def reference_for(pair: Pair, cfg: Config) -> str:
+    """The file the model is being trained to produce, for *pair*.
+
+    Normally the dry clean file. With ``reverberant_target`` it is the
+    reverberant-clean signal the Synthesizer wrote beside the mixture -- the
+    same speech with the room left on -- and the room stops being something
+    the model has to undo.
+
+    Falls back to the clean file when a manifest has no target, so an older
+    run still trains rather than failing on a missing key.
+    """
+    if cfg.data.reverberant_target and pair.target:
+        return pair.target
+    return pair.clean
 
 
 # ------------------------------------------------------------------- features
@@ -95,7 +129,7 @@ def build_arrays(pairs: Sequence[Pair], cfg: Config, *, sequence: bool,
     noisy_specs, target_specs = [], []
     for pair in pairs:
         noisy, _ = kudio.file_load(pair.noisy, sr=cfg.audio.sr)
-        clean, _ = kudio.file_load(pair.clean, sr=cfg.audio.sr)
+        clean, _ = kudio.file_load(reference_for(pair, cfg), sr=cfg.audio.sr)
         n_spec = spectrogram(noisy, cfg.audio)
         c_spec = spectrogram(clean, cfg.audio)
         frames = min(len(n_spec), len(c_spec))
@@ -104,9 +138,11 @@ def build_arrays(pairs: Sequence[Pair], cfg: Config, *, sequence: bool,
             continue
 
         if mask_target:
-            # the noise is what the mixture has that the clean file does not.
-            # kudio.Synthesizer writes mixed = clean + scaled noise, so this is
-            # exact bar the 16-bit quantisation of the files themselves
+            # the noise is what the mixture has that the reference does not.
+            # kudio.Synthesizer writes mixed = (reverberant) clean + scaled
+            # noise, so this is exact bar the 16-bit quantisation -- as long
+            # as the reference really is what was mixed, which in a
+            # reverberant dataset means `reverberant_target`
             length = min(len(noisy), len(clean))
             noise_spec = spectrogram(noisy[:length] - clean[:length], cfg.audio)
             target = ideal_ratio_mask(c_spec[:frames],

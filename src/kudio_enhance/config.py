@@ -86,6 +86,34 @@ class DataConfig:
     noise_dir: str = "data/noise"
     mixed_dir: str = "runs/mixed"
     snr_db: List[int] = field(default_factory=lambda: [-5, 0, 5])
+    #: Reverberation times, in seconds, to put the speech through before the
+    #: noise is mixed in. Empty means no rooms, which is the default and what
+    #: every run before this one did.
+    #:
+    #: The clean file stays the target, so a model trained on this is asked to
+    #: undo the room as well as the noise. That is a standard setup and a
+    #: choice worth making on purpose.
+    rt60: List[float] = field(default_factory=list)
+    #: Direct-to-reverberant ratio for those rooms, in dB -- distance in a
+    #: readable unit. +10 and above is a close microphone, 0 is a metre or
+    #: two, negative is the far end of a hall.
+    drr_db: float = 0.0
+    #: Train against the reverberant-but-clean signal instead of the dry
+    #: clean file: remove the noise, leave the room. A different and easier
+    #: problem than undoing both, and the honest one when the deployment
+    #: keeps its room.
+    #:
+    #: It also makes the ``irm`` target correct in a reverberant dataset.
+    #: The mask is built from ``noisy - reference``, and with a room on the
+    #: speech the dry clean file is not what was mixed, so that subtraction
+    #: hands the reverberation to the *noise* and the mask asks the model to
+    #: remove the room's own tail as if it were noise.
+    reverberant_target: bool = False
+    #: A link for the finished mixture to travel down -- a kudio channel
+    #: preset (``'telephone'``, ``'voip'``, ``'mu_law'``, ...) or ``None``.
+    #: Constant for the dataset rather than an axis: a corpus is recorded
+    #: over a phone line or it is not.
+    channel: Optional[str] = None
     mode: str = "regular"          # 'regular' or 'inc' (see kudio.Synthesizer)
     seed: Optional[int] = 17
     val_split: float = 0.1
@@ -97,6 +125,22 @@ class DataConfig:
             raise ValueError(f"unknown synthesis mode: {self.mode!r}")
         if not 0.0 <= self.val_split + self.test_split < 1.0:
             raise ValueError("val_split + test_split must be in [0, 1)")
+        if any(v <= 0 for v in self.rt60):
+            raise ValueError(
+                f"rt60 values must be positive, got {self.rt60}")
+        if self.reverberant_target and not self.rt60:
+            raise ValueError(
+                "reverberant_target needs rt60: with no room the clean file "
+                "already is the reverberant-clean signal")
+        if self.channel is not None:
+            # fail here rather than an hour into a synthesis run
+            import kudio
+            kudio.channel_spec(self.channel)
+
+    @property
+    def reverberant(self) -> bool:
+        """Is this dataset being built with rooms?"""
+        return bool(self.rt60)
 
 
 #: What the network is asked to produce.

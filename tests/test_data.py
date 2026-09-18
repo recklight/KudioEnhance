@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
+import pathlib
+
 import pytest
 
 from kudio_enhance.data import (
@@ -148,3 +150,183 @@ def test_save_history_accepts_a_keras_history_object(tmp_path):
 
     path = save_history(tmp_path / "h.json", FakeHistory())
     assert load_history(path) == {"loss": [0.5, 0.25]}
+
+
+# ============================================================ reverberation
+
+def test_rooms_are_off_by_default(config):
+    assert config.data.rt60 == []
+    assert config.data.reverberant is False
+
+
+def test_an_impossible_room_is_refused_at_load():
+    from kudio_enhance.config import DataConfig
+
+    with pytest.raises(ValueError, match="rt60"):
+        DataConfig(rt60=[0.5, 0.0])
+    with pytest.raises(ValueError, match="rt60"):
+        DataConfig(rt60=[-1.0])
+
+
+def test_synthesizing_in_rooms_records_which_room(config):
+    """The manifest is where the room lives: `syn` returns four-tuples and a
+    fifth element that appeared only with `rt60=` would be a return shape that
+    depends on a keyword."""
+    config.data.rt60 = [0.4]
+    config.data.drr_db = 3.0
+    assert config.data.reverberant is True
+
+    pairs = synthesize(config, "exp1")
+    assert pairs
+    assert all(p.rt60 == 0.4 for p in pairs)
+    assert all("rt400ms" in p.noisy for p in pairs)
+    assert all(p.exists() for p in pairs)
+
+
+def test_the_room_is_a_fourth_axis(config):
+    plain = len(synthesize(config, "exp1"))
+
+    config.data.rt60 = [0.3, 0.6, 0.9]
+    config.data.mode = "inc"
+    with_rooms = len(synthesize(config, "exp2"))
+    assert with_rooms > plain
+
+
+def test_a_reverberant_manifest_round_trips(config, tmp_path):
+    from kudio_enhance.data import load_manifest, save_manifest
+
+    config.data.rt60 = [0.5]
+    pairs = synthesize(config, "exp1")
+    path = save_manifest(tmp_path / "m.json", pairs)
+    assert load_manifest(path) == pairs
+
+
+def test_a_manifest_written_before_rooms_still_loads(tmp_path):
+    """`rt60` is optional and last, so the field is simply absent."""
+    import json
+
+    from kudio_enhance.data import load_manifest
+    path = tmp_path / "old.json"
+    path.write_text(json.dumps([
+        {"noisy": "a.wav", "clean": "b.wav", "noise": "white", "snr_db": 0}
+    ]), encoding="utf-8")
+
+    pairs = load_manifest(path)
+    assert len(pairs) == 1 and pairs[0].rt60 is None
+
+
+def test_reverberant_features_are_still_the_right_shape(config):
+    """The room changes what the model hears, not the geometry it hears it
+    in."""
+    config.data.rt60 = [0.5]
+    pairs = synthesize(config, "exp1")
+    x, y, std = build_arrays(pairs, config, sequence=False, fit=True)
+
+    bins = config.audio.n_bins
+    assert x.shape[1] == bins * (2 * config.model.context + 1)
+    assert y.shape[1] == bins
+    assert len(x) == len(y)
+
+
+# =================================================== the reverberant target
+
+def test_the_reverberant_target_is_off_by_default(config):
+    assert config.data.reverberant_target is False
+    assert config.data.channel is None
+
+
+def test_a_target_without_a_room_is_refused_at_load():
+    from kudio_enhance.config import DataConfig
+
+    with pytest.raises(ValueError, match="already is"):
+        DataConfig(reverberant_target=True)
+    DataConfig(reverberant_target=True, rt60=[0.5])       # fine with a room
+
+
+def test_an_unknown_link_is_refused_at_load_rather_than_an_hour_in():
+    from kudio_enhance.config import DataConfig
+
+    with pytest.raises(Exception, match="unknown channel"):
+        DataConfig(channel="opus")
+    DataConfig(channel="telephone")
+
+
+def test_training_against_the_room_uses_the_file_the_room_produced(config):
+    from kudio_enhance.data import reference_for
+
+    config.data.rt60 = [0.5]
+    config.data.reverberant_target = True
+    pairs = synthesize(config, "exp1")
+
+    assert pairs and all(p.target for p in pairs)
+    for pair in pairs:
+        assert pathlib.Path(pair.target).is_file()
+        assert reference_for(pair, config) == pair.target
+        assert pathlib.Path(pair.target).name == pathlib.Path(pair.noisy).name
+
+    config.data.reverberant_target = False
+    assert reference_for(pairs[0], config) == pairs[0].clean
+
+
+def test_an_older_manifest_without_targets_still_trains(config):
+    """A run made before targets existed has no `target` key, and asking for
+    one should fall back rather than fail on the missing file."""
+    from kudio_enhance.data import reference_for
+
+    config.data.rt60 = [0.5]
+    pairs = synthesize(config, "exp1")
+    config.data.reverberant_target = True
+    assert all(p.target is None for p in pairs)
+    assert reference_for(pairs[0], config) == pairs[0].clean
+
+
+def test_the_mask_is_only_correct_against_what_was_actually_mixed(config):
+    """The real reason this matters. The mask is built from
+    ``noisy - reference``; in a reverberant dataset the dry clean file is not
+    what was mixed, so that subtraction hands the room's tail to the noise
+    and the model is asked to remove the reverberation as if it were noise.
+    Against the reverberant target the subtraction is the noise again.
+    """
+    import kudio
+    import numpy as np
+
+    config.data.rt60 = [0.7]
+    config.data.reverberant_target = True
+    pair = synthesize(config, "exp1")[0]
+
+    noisy, sr = kudio.file_load(pair.noisy, sr=config.audio.sr)
+    dry, _ = kudio.file_load(pair.clean, sr=config.audio.sr)
+    wet, _ = kudio.file_load(pair.target, sr=config.audio.sr)
+
+    def residual(reference):
+        n = min(len(noisy), len(reference))
+        return noisy[:n] - reference[:n]
+
+    # the residual against the wet target is the noise that was mixed in;
+    # against the dry file it is the noise *plus* the room, so it is louder
+    assert np.mean(residual(wet) ** 2) < np.mean(residual(dry) ** 2)
+
+
+def test_a_link_reaches_the_mixture_and_not_the_target(config):
+    import kudio
+
+    config.data.rt60 = [0.4]
+    config.data.reverberant_target = True
+    config.data.channel = "telephone"
+    pair = synthesize(config, "exp1")[0]
+
+    assert pair.channel == "telephone"
+    noisy, sr = kudio.file_load(pair.noisy, sr=config.audio.sr)
+    assert kudio.audio_report(noisy, sr).band_limited
+
+
+def test_features_are_the_same_shape_against_either_target(config):
+    config.data.rt60 = [0.5]
+    config.data.reverberant_target = True
+    pairs = synthesize(config, "exp1")
+
+    wet_x, wet_y, _ = build_arrays(pairs, config, sequence=False, fit=True)
+    config.data.reverberant_target = False
+    dry_x, dry_y, _ = build_arrays(pairs, config, sequence=False, fit=True)
+
+    assert wet_x.shape == dry_x.shape and wet_y.shape == dry_y.shape
