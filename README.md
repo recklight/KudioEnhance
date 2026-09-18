@@ -316,7 +316,7 @@ an optimisation setup.
 pytest -q
 ```
 
-84 tests. The suite builds a tiny synthetic corpus in a temp directory and runs
+92 tests. The suite builds a tiny synthetic corpus in a temp directory and runs
 the whole pipeline — mix, train one epoch, enhance, score — in seconds. Tests
 that need TensorFlow skip cleanly when it is not installed.
 
@@ -332,9 +332,12 @@ says.
   more.
 - Magnitude-only enhancement: the phase is the noisy input's. Phase-aware or
   time-domain models are a different architecture family.
-- The `irm` target needs the noise, and takes it as `noisy - clean` in the time
-  domain. That is exact for anything `kudio.Synthesizer` mixed, and wrong for a
-  corpus whose noisy and clean files are separate recordings rather than a sum.
+- The `irm` target needs the noise, and takes it as `noisy - reference` in the
+  time domain. That is exact for anything `kudio.Synthesizer` mixed, and wrong
+  for a corpus whose noisy and clean files are separate recordings rather than
+  a sum. In a reverberant dataset the reference has to be the reverberant
+  target, or the room's tail is handed to the noise -- see
+  `reverberant_target` above.
 
 ### Since 3.5.0
 
