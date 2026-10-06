@@ -118,14 +118,16 @@ def train(cfg: Config, name: str, *, epochs: Optional[int] = None,
 # ------------------------------------------------------------------ stage 3
 
 def evaluate(cfg: Config, name: str, *, optional: bool = False
-             ) -> Tuple[List[Dict[str, object]], Dict[str, float]]:
+             , pesq_mode: str = "auto",
+             pesq_scale: str = "lqo") -> Tuple[List[Dict[str, object]], Dict[str, float]]:
     """Score the held-out split with the trained model."""
     test_pairs = _load_split(cfg, name, "test")
     if not test_pairs:
         raise ValueError(
             "the test split is empty — raise data.test_split and re-synthesize")
     enhancer = Enhancer.load(cfg.run_dir(name))
-    rows, summary = evaluate_pairs(enhancer, test_pairs, optional=optional)
+    rows, summary = evaluate_pairs(enhancer, test_pairs, optional=optional,
+                                   pesq_mode=pesq_mode, pesq_scale=pesq_scale)
     write_report(cfg.report_path(name), rows, summary)
     return rows, summary
 
@@ -133,9 +135,11 @@ def evaluate(cfg: Config, name: str, *, optional: bool = False
 # --------------------------------------------------------------------- all
 
 def run(cfg: Config, name: str, *, epochs: Optional[int] = None,
-        optional: bool = False, verbose: int = 1) -> Dict[str, float]:
+        optional: bool = False, verbose: int = 1, pesq_mode: str = "auto",
+             pesq_scale: str = "lqo") -> Dict[str, float]:
     """synthesize -> train -> evaluate, returning the summary scores."""
     synthesize(cfg, name)
     train(cfg, name, epochs=epochs, verbose=verbose)
-    _, summary = evaluate(cfg, name, optional=optional)
+    _, summary = evaluate(cfg, name, optional=optional,
+                          pesq_mode=pesq_mode, pesq_scale=pesq_scale)
     return summary

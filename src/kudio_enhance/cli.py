@@ -49,8 +49,18 @@ def _parser() -> argparse.ArgumentParser:
             p.add_argument("--epochs", type=int,
                            help="override train.epochs (use 1 for a smoke run)")
         if stage in ("evaluate", "run"):
+            p.add_argument("--pesq-scale", default="lqo",
+                           choices=["lqo", "raw"],
+                           help="PESQ scale: 'lqo' is MOS-LQO (what kudio has "
+                                "always reported); 'raw' is the narrowband "
+                                "P.862 score most enhancement papers quote. "
+                                "raw 2.03 is about 1.65 MOS-LQO")
+            p.add_argument("--pesq-mode", default="auto",
+                           choices=["auto", "nb", "wb"],
+                           help="PESQ bandwidth; 'auto' picks by sample rate")
             p.add_argument("--full", action="store_true",
-                           help="also compute PESQ/STOI/SDR (needs kudio[eval])")
+                           help="also compute PESQ/STOI/SDR (STOI and SDR need "
+                                "kudio[eval]; PESQ needs kudio[pesq])")
 
     denoise = sub.add_parser("denoise",
                              help="enhance a file, or a folder, with a trained run")
@@ -152,13 +162,18 @@ def main(argv=None) -> int:
         return 0
 
     if args.command == "evaluate":
-        _, summary = pipeline.evaluate(cfg, args.name, optional=args.full)
+        _, summary = pipeline.evaluate(
+            cfg, args.name, optional=args.full,
+            pesq_mode=getattr(args, "pesq_mode", "auto"),
+            pesq_scale=getattr(args, "pesq_scale", "lqo"))
         _print_summary(summary)
         print(f"report -> {cfg.report_path(args.name)}")
         return 0
 
     summary = pipeline.run(cfg, args.name, epochs=args.epochs,
-                           optional=args.full)
+                           optional=args.full,
+                           pesq_mode=getattr(args, "pesq_mode", "auto"),
+                           pesq_scale=getattr(args, "pesq_scale", "lqo"))
     _print_summary(summary)
     return 0
 

@@ -34,7 +34,15 @@ pip install -e ".[dev]"
 ```
 
 Needs **Python 3.9+** and **TensorFlow ≥ 2.16** (Keras 3 — no legacy shim).
-PESQ/STOI/SDR metrics are optional: `pip install "kudio-enhance[eval]"`.
+STOI and SDR are optional: `pip install "kudio-enhance[eval]"`. **PESQ is a
+separate extra**, `pip install "kudio[pesq]"`, because it builds from source
+— a C compiler, and the MSVC Build Tools on Windows — so it is deliberately
+left out of `[eval]` and `[all]`, which would otherwise stop installing.
+
+PESQ comes on two scales. `evaluate` reports MOS-LQO by default; pass
+`--pesq-scale raw` for the narrowband P.862 score most enhancement papers
+quote. They are different scales, not different roundings: raw 2.03 is about
+1.65 MOS-LQO.
 
 ## Quick start
 

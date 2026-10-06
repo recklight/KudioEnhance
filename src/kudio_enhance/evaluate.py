@@ -43,7 +43,8 @@ def _base_scores(ref: np.ndarray, deg: np.ndarray) -> Dict[str, float]:
 
 
 def score_pair(enhancer: Enhancer, pair: Pair, *,
-               optional: bool = False) -> Dict[str, object]:
+               optional: bool = False, pesq_mode: str = "auto",
+               pesq_scale: str = "lqo") -> Dict[str, object]:
     """Score one mixture: noisy vs clean, then enhanced vs clean."""
     sr = enhancer.cfg.audio.sr
     noisy, _ = kudio.file_load(pair.noisy, sr=sr)
@@ -64,8 +65,11 @@ def score_pair(enhancer: Enhancer, pair: Pair, *,
         row[f"delta_{name}"] = row[f"enhanced_{name}"] - row[f"noisy_{name}"]
 
     if optional:
-        noisy_opt = kudio.eval_metrics(sr, clean, noisy)
-        enhanced_opt = kudio.eval_metrics(sr, clean, enhanced)
+        noisy_opt = kudio.eval_metrics(sr, clean, noisy, pesq_mode=pesq_mode,
+                                       pesq_scale=pesq_scale)
+        enhanced_opt = kudio.eval_metrics(sr, clean, enhanced,
+                                          pesq_mode=pesq_mode,
+                                          pesq_scale=pesq_scale)
         for name, n_val, e_val in zip(OPTIONAL_METRICS, noisy_opt, enhanced_opt):
             row[f"noisy_{name}"] = n_val
             row[f"enhanced_{name}"] = e_val
@@ -75,16 +79,24 @@ def score_pair(enhancer: Enhancer, pair: Pair, *,
 
 
 def evaluate_pairs(enhancer: Enhancer, pairs: Sequence[Pair], *,
-                   optional: bool = False
+                   optional: bool = False,
+                   pesq_mode: str = "auto", pesq_scale: str = "lqo"
                    ) -> Tuple[List[Dict[str, object]], Dict[str, float]]:
-    """Score every pair and average the numeric columns."""
+    """Score every pair and average the numeric columns.
+
+    :param pesq_scale: ``'lqo'`` for MOS-LQO, or ``'raw'`` for the narrowband
+        P.862 score most enhancement papers report. The two are different
+        scales, not different roundings: raw 2.03 is about 1.65 MOS-LQO.
+    """
     if not pairs:
         raise ValueError("nothing to evaluate")
 
     rows = []
     for pair in pairs:
         try:
-            rows.append(score_pair(enhancer, pair, optional=optional))
+            rows.append(score_pair(enhancer, pair, optional=optional,
+                                   pesq_mode=pesq_mode,
+                                   pesq_scale=pesq_scale))
         except Exception as e:
             log.warning("skipping %s — %s: %s", pair.noisy, type(e).__name__, e)
     if not rows:
