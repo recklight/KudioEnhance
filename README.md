@@ -10,11 +10,12 @@
 
 Three stages, one config file:
 
-```
-synthesize  ──►  train  ──►  evaluate
- clean × noise    noisy spec      SI-SDR / PESQ / STOI,
- at your SNRs     → clean spec    before vs. after
-```
+[![KudioEnhance workflow](docs/images/workflow.png)](https://raw.githack.com/recklight/KudioEnhance/master/docs/workflow.html?theme=dark)
+
+The figure is a link to an interactive version — [open it online](https://raw.githack.com/recklight/KudioEnhance/master/docs/workflow.html?theme=dark), or open [`docs/workflow.html`](docs/workflow.html) from a checkout. You can zoom, search for a node, or trace the path between two of them, and every box carries a link to the lines of source it was drawn from.
+
+Each stage reads what the one before it wrote, so you can re-train without
+re-mixing and re-evaluate without re-training. `run` does all three in order.
 
 Models work in the **log-power spectrogram domain** and reuse the noisy phase —
 the standard magnitude-only enhancement setup. Feature extraction and
@@ -298,6 +299,9 @@ silently disagree with training.
 ## Layout
 
 ```
+docs/
+├── images/workflow.png  # the README figure
+└── workflow.html        # the same diagram, interactive
 src/kudio_enhance/
 ├── config.py        # typed dataclasses, YAML in/out, run paths
 ├── data.py          # mixing, manifests, splits, feature matrices
