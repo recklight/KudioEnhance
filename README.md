@@ -24,18 +24,16 @@ any other kudio-based tool produces.
 
 ## Install
 
-```bash
-pip install kudio-enhance
-```
-
-From a checkout:
+Not on PyPI. Clone it and install from the checkout:
 
 ```bash
+git clone https://github.com/recklight/KudioEnhance.git
+cd KudioEnhance
 pip install -e ".[dev]"
 ```
 
 Needs **Python 3.9+** and **TensorFlow ≥ 2.16** (Keras 3 — no legacy shim).
-STOI and SDR are optional: `pip install "kudio-enhance[eval]"`. **PESQ is a
+STOI and SDR are optional: `pip install -e ".[eval]"`. **PESQ is a
 separate extra**, `pip install "kudio[pesq]"`, because it builds from source
 — a C compiler, and the MSVC Build Tools on Windows — so it is deliberately
 left out of `[eval]` and `[all]`, which would otherwise stop installing.
@@ -363,8 +361,8 @@ instead of quietly handing everything to training.
 
 - **[kudio](https://pypi.org/project/kudio/)** — the audio toolkit underneath.
 - **[KudioStudio](https://github.com/recklight/KudioStudio)** — desktop workbench
-  for the same toolkit. Its Enhance panel loads the run directories this package
-  produces (`pip install "kudiostudio[enhance]"`), so you can listen to a model's
+  for the same toolkit. With this package installed alongside it, its Enhance
+  panel loads the run directories produced here, so you can listen to a model's
   output and score it interactively instead of only reading the CSV.
 
 ## Licence
