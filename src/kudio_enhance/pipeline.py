@@ -17,7 +17,7 @@ import numpy as np
 from kudio_enhance.config import Config
 from kudio_enhance.data import (
     Pair,
-    build_arrays,
+    build_dataset,
     load_manifest,
     save_manifest,
     split_pairs,
@@ -67,34 +67,56 @@ def _load_split(cfg: Config, name: str, part: str) -> List[Pair]:
 # ------------------------------------------------------------------ stage 2
 
 def train(cfg: Config, name: str, *, epochs: Optional[int] = None,
-          verbose: int = 1):
-    """Build the arrays, fit the model, and save everything needed to reuse it."""
-    from kudio_enhance.models import build_model, is_sequence
+          verbose: int = 1) -> Dict[str, List[float]]:
+    """Build the datasets, fit the model, and save everything to reuse it.
+
+    The training and validation sets are held in memory, or streamed from
+    the audio every epoch when ``train.streaming`` is set; see
+    :func:`~kudio_enhance.data.build_dataset`. The weights are initialised
+    from the training seed as well, so the same config trains the same model
+    twice over. Returns the curves.
+
+    The run's ``config.yaml`` records the layer widths that were built, even
+    when *cfg* left them to the architecture's default, so the run can be
+    rebuilt exactly whatever the default later becomes. *cfg* itself is left
+    as it was.
+    """
+    from kudio_enhance.models import build_model, is_sequence, resolve_units
     from kudio_enhance.train import (
-        compile_model,
+        check_batch_size,
         fit,
         plot_history,
         save_history,
+        seeded,
         summarise_history,
+        training_seed,
     )
 
+    cfg = resolve_units(cfg)
+    # before the training set is built, which can be a pass over the audio
+    check_batch_size(cfg)
     sequence = is_sequence(cfg.model.name)
     train_pairs = _load_split(cfg, name, "train")
     val_pairs = _load_split(cfg, name, "val")
 
-    x_train, y_train, standardizer = build_arrays(
+    if cfg.train.streaming and cfg.train.shuffle_buffer == 0:
+        log.warning("streaming with shuffle_buffer 0: every batch is drawn "
+                    "from the file being read and less than a batch left "
+                    "over from earlier ones; a buffer as many examples deep "
+                    "as a hundred files hold mixes the corpus properly")
+    train_set, standardizer = build_dataset(
         train_pairs, cfg, sequence=sequence, fit=True)
-    log.info("train arrays: X%s Y%s", x_train.shape, y_train.shape)
+    log.info("train set: %r", train_set)
 
     validation = None
     if val_pairs:
-        x_val, y_val, _ = build_arrays(val_pairs, cfg, sequence=sequence,
-                                       standardizer=standardizer)
-        validation = (x_val, y_val)
+        validation, _ = build_dataset(val_pairs, cfg, sequence=sequence,
+                                      standardizer=standardizer)
 
-    model = compile_model(build_model(cfg), cfg)
+    with seeded(training_seed(cfg)):
+        model = build_model(cfg)
     model_path = cfg.model_path(name)
-    history = fit(model, x_train, y_train, cfg, model_path,
+    history = fit(model, train_set, None, cfg, model_path,
                   validation_data=validation, epochs=epochs, verbose=verbose)
 
     standardizer.save(cfg.stats_path(name))

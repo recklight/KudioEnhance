@@ -155,12 +155,13 @@ def test_both_targets_produce_the_same_input_shape(config):
 
 # ---------------------------------------------------------------- the model
 
-@pytest.mark.parametrize("name", ["ddae", "blstm", "conv_ae"])
-def test_a_mask_model_can_only_output_zero_to_one(config, name):
+@pytest.mark.parametrize("name", ["ddae", "blstm", "conv_ae", "crn", "unet"])
+def test_a_mask_model_can_only_output_zero_to_one(config, predict, name):
     from kudio_enhance.models import build_model
 
     config.model.name = name
     config.model.target = "irm"
+    config.model.units = [8, 8]
     model = build_model(config)
 
     bins = config.audio.n_bins
@@ -171,12 +172,12 @@ def test_a_mask_model_can_only_output_zero_to_one(config, name):
         probe = np.random.default_rng(0).standard_normal(
             (2, 8, bins)).astype(np.float32) * 10
 
-    out = model.predict(probe, verbose=0)
+    out = predict(model, probe)
     assert out.min() >= 0.0
     assert out.max() <= 1.0
 
 
-def test_a_spectrum_model_is_unbounded(config):
+def test_a_spectrum_model_is_unbounded(config, predict):
     """...which is the cost: it has to learn the level as well as the shape."""
     from kudio_enhance.models import build_model
 
@@ -186,28 +187,39 @@ def test_a_spectrum_model_is_unbounded(config):
     probe = np.random.default_rng(0).standard_normal(
         (8, config.audio.n_bins * (2 * config.model.context + 1))
     ).astype(np.float32) * 10
-    out = model.predict(probe, verbose=0)
+    out = predict(model, probe)
     assert out.min() < 0.0 or out.max() > 1.0
 
 
-def test_the_conv_residual_shortcut_is_dropped_for_a_mask(config):
+def test_the_conv_residual_shortcut_is_dropped_for_a_mask(config, torch,
+                                                         predict):
     """'add this to the input' and 'keep this fraction of it' are different
-    parameterisations; combining them makes the sigmoid an offset."""
+    parameterisations; combining them makes the sigmoid an offset.
+
+    Silencing the head shows which one a model is: the spectrum model then
+    hands its input straight back, and the mask model keeps half of
+    everything whatever the input was."""
     from kudio_enhance.models import build_model
 
     config.model.name = "conv_ae"
-    config.model.target = "spectrum"
-    assert any(layer.name == "clean_spec" for layer in build_model(config).layers)
+    probe = np.random.default_rng(0).standard_normal(
+        (1, 12, config.audio.n_bins)).astype(np.float32) * 3
 
-    config.model.target = "irm"
-    layers = build_model(config).layers
-    assert any(layer.name == "mask_spec" for layer in layers)
-    assert not any(layer.name == "clean_spec" for layer in layers)
+    def with_a_silent_head(target):
+        config.model.target = target
+        model = build_model(config)
+        torch.nn.init.zeros_(model.head.weight)
+        torch.nn.init.zeros_(model.head.bias)
+        return predict(model, probe)
+
+    assert np.array_equal(with_a_silent_head("spectrum"), probe)
+    assert np.array_equal(with_a_silent_head("irm"),
+                          np.full_like(probe, 0.5))
 
 
 # ------------------------------------------------------------- end to end
 
-def test_a_mask_model_trains_and_enhances(config, tmp_path):
+def test_a_mask_model_trains_and_enhances(config, tmp_path, torch):
     from kudio_enhance import pipeline
     from kudio_enhance.inference import Enhancer
 

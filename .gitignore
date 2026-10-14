@@ -25,6 +25,7 @@ htmlcov/
 # Experiment output: datasets, checkpoints, reports
 runs/
 data/
+*.pt
 *.keras
 *.h5
 *.npz

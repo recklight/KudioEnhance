@@ -75,3 +75,33 @@ def config(corpus):
 @pytest.fixture
 def tone() -> np.ndarray:
     return _harmonic(seed=42)
+
+
+# ------------------------------------------------------------------ framework
+
+@pytest.fixture
+def torch():
+    """PyTorch, for the tests that need it.
+
+    Asked for by name, so a test that needs the framework says so in its
+    signature and skips cleanly without it, while everything that does not —
+    configs, features, mixing — still runs.
+
+    Any ImportError skips, not only a missing module: a torch that is
+    installed but cannot load — a CUDA library gone missing, say — is no
+    more usable than one that is absent.
+    """
+    return pytest.importorskip("torch", reason="needs PyTorch",
+                               exc_type=ImportError)
+
+
+@pytest.fixture
+def predict(torch):
+    """``model(array)`` the way inference runs it: eval mode, no graph,
+    numpy in and out."""
+    def run(model, array) -> np.ndarray:
+        model.eval()
+        with torch.no_grad():
+            return model(torch.from_numpy(
+                np.asarray(array, dtype=np.float32))).numpy()
+    return run

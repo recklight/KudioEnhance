@@ -5,12 +5,15 @@ Three stages, one config file:
 
     synthesize  ->  train  ->  evaluate
 
->>> from kudio_enhance import Config, pipeline
+>>> from kudio_enhance import Config, Enhancer, pipeline
 >>> cfg = Config.from_yaml('config.yaml')
 >>> summary = pipeline.run(cfg, 'exp1')
+>>> clean = Enhancer.load('runs/exp1').enhance(noisy)
 
-TensorFlow is only imported when a model is actually built, so `Config`,
-features and dataset tooling stay usable without it.
+The models are native PyTorch, and torch is only imported when a model is
+actually built, trained or loaded, so `Config`, features and dataset tooling
+stay usable without it. `Enhancer` is resolved on first use for the same
+reason: importing this package never pulls in the framework.
 """
 import logging as _logging
 
@@ -24,7 +27,7 @@ from kudio_enhance.config import (
 )
 from kudio_enhance.data import Pair
 from kudio_enhance.features import Standardizer
-# training curves: importable without TensorFlow, so a finished run can be
+# training curves: importable without PyTorch, so a finished run can be
 # inspected from anywhere
 from kudio_enhance.train import load_history, save_history, summarise_history
 
@@ -40,7 +43,18 @@ __all__ = [
     "TrainConfig",
     "Pair",
     "Standardizer",
+    "Enhancer",
     "save_history",
     "load_history",
     "summarise_history",
 ]
+
+
+def __getattr__(name: str):
+    # PEP 562: `kudio_enhance.Enhancer` resolves without the inference path
+    # being imported up front, so `import kudio_enhance` stays free of torch
+    # however that module grows
+    if name == "Enhancer":
+        from kudio_enhance.inference import Enhancer
+        return Enhancer
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

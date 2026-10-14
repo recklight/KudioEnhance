@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    # the whole suite, models included, on a CPU-only PyTorch -- the CUDA
+    # wheels PyPI serves by default are several gigabytes nobody here uses
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # the oldest Python, on the oldest torch pyproject allows -- the
+          # floor is only true if something installs it. 22.04 because newer
+          # runner images no longer carry a CPython 3.9
+          - os: ubuntu-22.04
+            python-version: "3.9"
+            torch: "torch==2.4.1"
+          - os: ubuntu-latest
+            python-version: "3.11"
+            torch: "torch"
+          - os: ubuntu-latest
+            python-version: "3.13"
+            torch: "torch"
+          - os: windows-latest
+            python-version: "3.12"
+            torch: "torch"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install (CPU-only PyTorch, then the package)
+        run: |
+          python -m pip install --upgrade pip
+          pip install "${{ matrix.torch }}" --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev]"
+      - name: Run tests
+        run: pytest -q
+
+  without-torch:
+    # Config, features, manifests and the training curves are meant to work
+    # with no framework installed, and the model tests to skip rather than
+    # error. Only a job that never installs torch can show that.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install everything except torch
+        run: |
+          python -m pip install --upgrade pip
+          pip install "kudio[eval]>=3.7.1" numpy PyYAML pytest
+          pip install -e . --no-deps
+      - name: The package imports without torch
+        run: python -c "import kudio_enhance, sys; assert 'torch' not in sys.modules"
+      - name: Run tests (framework tests skip)
+        run: pytest -q

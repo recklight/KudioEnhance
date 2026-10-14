@@ -165,7 +165,15 @@ class ModelConfig:
     target: str = "spectrum"       # see TARGETS
     context: int = 2               # frame-wise models: +/- frames stacked in
     n_frames: int = 64             # sequence models: frames per training window
-    units: List[int] = field(default_factory=lambda: [1024, 1024, 1024])
+    #: Layer widths: a dense layer's units, an LSTM's, or a convolution's
+    #: filters or channels, whichever the architecture has. ``None`` means
+    #: the architecture's own default, which ``kudio-enhance models`` lists.
+    #: No single default serves them all: 1024 is a sensible width for a
+    #: dense layer and an absurd one for a 2-D convolution, each of whose
+    #: channels is a whole time-frequency map. Training writes the widths it
+    #: built into the run's ``config.yaml``, so a run never depends on what
+    #: the default happens to be when it is loaded.
+    units: Optional[List[int]] = None
     dropout: float = 0.1
 
     def __post_init__(self) -> None:
@@ -173,6 +181,13 @@ class ModelConfig:
             raise ValueError("context must be >= 0")
         if self.n_frames < 1:
             raise ValueError("n_frames must be >= 1")
+        if self.units is not None and (
+                not isinstance(self.units, (list, tuple))
+                or not all(isinstance(width, int) and width >= 1
+                           for width in self.units)):
+            raise ValueError(
+                f"units must be a list of positive widths, or null for the "
+                f"architecture's default; got {self.units!r}")
         if self.target not in TARGETS:
             raise ValueError(
                 f"unknown target {self.target!r}. Choose from "
@@ -189,20 +204,78 @@ class ModelConfig:
         return self.target == "irm"
 
 
+#: Where training runs. ``auto`` takes an NVIDIA GPU when torch can see one
+#: and the CPU otherwise, so one config file works on a laptop and on a
+#: training box. Apple's GPUs (torch's ``mps``) are not used: on a Mac,
+#: training runs on the CPU.
+DEVICES = ("auto", "cpu", "cuda")
+
+
 @dataclass
 class TrainConfig:
     """Optimisation and output locations."""
 
     epochs: int = 50
+    #: Examples per training step. The frame-wise ``ddae`` needs two or more,
+    #: because its BatchNorm takes a variance over the batch and a single
+    #: example has none; training refuses less for it. The sequence models
+    #: can train on one window at a time: where they normalise, they take
+    #: the statistics over the window's frames as well.
     batch_size: int = 256
     learning_rate: float = 1e-3
     patience: int = 8
     out_dir: str = "runs"
-    shuffle_buffer: int = 0        # 0 = shuffle the whole training set
+    #: How many examples a streamed epoch holds back to mix with the files
+    #: still to come -- frames for a frame-wise model, windows for a sequence
+    #: model. Every batch is drawn at random from all the examples waiting,
+    #: and at least this many are left waiting until the files run out.
+    #:
+    #: ``0`` holds nothing back beyond the file being read: the files still
+    #: come in a fresh order every epoch and each file's examples are
+    #: shuffled, but a batch draws only on that file and on what earlier
+    #: draws left over, which is less than a batch. Held in memory, the
+    #: training set is shuffled whole every epoch and this is not used.
+    shuffle_buffer: int = 0
+    device: str = "auto"           # see DEVICES; 'cuda:1' picks a card
+    #: Seeds the weight initialisation, the dropout masks and the order the
+    #: batches come in. ``None`` borrows ``data.seed``, so the one seed that
+    #: already makes the mixture reproducible makes the training run
+    #: reproducible too, unless the two are deliberately pulled apart.
+    seed: Optional[int] = None
+    #: Compute the training features from the audio a file at a time, every
+    #: epoch, instead of holding them in memory: for a training set too big
+    #: to hold, at the price of a pass over the audio per epoch. See
+    #: :func:`kudio_enhance.data.build_dataset`.
+    streaming: bool = False
 
     def __post_init__(self) -> None:
         if self.epochs < 1:
             raise ValueError("epochs must be >= 1")
+        # a float or `true` would get as far as the first epoch before
+        # failing somewhere inside the shuffle
+        if (isinstance(self.batch_size, bool)
+                or not isinstance(self.batch_size, int)
+                or self.batch_size < 1):
+            raise ValueError(
+                f"batch_size must be a number of examples, 1 or more; "
+                f"got {self.batch_size!r}")
+        # YAML reads `streaming: "false"` as a string, and a non-empty string
+        # is true: refused here rather than quietly streaming
+        if not isinstance(self.streaming, bool):
+            raise ValueError(
+                f"streaming must be true or false, got {self.streaming!r}")
+        if (isinstance(self.shuffle_buffer, bool)
+                or not isinstance(self.shuffle_buffer, int)
+                or self.shuffle_buffer < 0):
+            raise ValueError(
+                f"shuffle_buffer must be a number of examples, 0 or more; "
+                f"got {self.shuffle_buffer!r}")
+        base, _, index = self.device.partition(":")
+        if base not in DEVICES or (
+                index and not (base == "cuda" and index.isdigit())):
+            raise ValueError(
+                f"unknown device {self.device!r}. Choose from "
+                f"{', '.join(DEVICES)}, or 'cuda:<index>'")
 
 
 @dataclass
@@ -255,7 +328,8 @@ class Config:
         return Path(self.train.out_dir) / name
 
     def model_path(self, name: str) -> Path:
-        return self.run_dir(name) / f"{self.model.name}.keras"
+        """The trained weights. See :mod:`kudio_enhance.checkpoint`."""
+        return self.run_dir(name) / f"{self.model.name}.pt"
 
     def stats_path(self, name: str) -> Path:
         return self.run_dir(name) / "stats.npz"

@@ -22,11 +22,15 @@ from kudio_enhance.features import (
     stack_context,
     to_waveform,
 )
-from kudio_enhance.models import is_sequence
+from kudio_enhance.models import is_sequence, resolve_units
 
 log = logging.getLogger(__name__)
 
 __all__ = ["Enhancer"]
+
+#: Frame-wise models see one row per frame, and an hour of audio is over a
+#: million of them; this many at a time keeps memory flat whatever the length.
+FRAME_BATCH = 4096
 
 
 class Enhancer:
@@ -37,7 +41,9 @@ class Enhancer:
     """
 
     def __init__(self, model, standardizer: Standardizer, cfg: Config):
-        self.model = model
+        # inference never wants dropout, or BatchNorm normalising one
+        # utterance by its own statistics instead of the training set's
+        self.model = model.eval()
         self.standardizer = standardizer
         self.cfg = cfg
         self.sequence = is_sequence(cfg.model.name)
@@ -46,15 +52,51 @@ class Enhancer:
     # ---------------------------------------------------------------- load
 
     @classmethod
-    def load(cls, run_dir, config_name: str = "config.yaml") -> "Enhancer":
-        """Load model + stats + config from a run directory."""
-        import keras
+    def load(cls, run_dir, config_name: str = "config.yaml", *,
+             device: str = "auto") -> "Enhancer":
+        """Load model + stats + config from a run directory.
+
+        The checkpoint holds weights only. The architecture is rebuilt from
+        the run's own config and the weights are poured into it, so the
+        network that comes back is the one the config describes — and the
+        config is checked against what the checkpoint says it was trained as.
+
+        :param device: where to run — ``'auto'``, whatever ``train.device``
+            the run was trained with, because a model trained on a GPU box is
+            routinely used on a laptop.
+        """
         run_dir = Path(run_dir)
-        cfg = Config.from_yaml(run_dir / config_name)
-        model_path = run_dir / f"{cfg.model.name}.keras"
+        # a run trained here always names its widths; one whose config was
+        # written by hand may leave them to the default, and `cfg` should
+        # say what was built either way
+        cfg = resolve_units(Config.from_yaml(run_dir / config_name))
+        model_path = run_dir / f"{cfg.model.name}.pt"
         if not model_path.is_file():
+            legacy = model_path.with_suffix(".keras")
+            if legacy.is_file():
+                raise FileNotFoundError(
+                    f"{run_dir} was trained by kudio-enhance 0.1 on "
+                    f"TensorFlow ({legacy.name}); kudio-enhance 0.2 runs on "
+                    f"PyTorch and cannot read Keras weights. Retrain it with "
+                    f"0.2 — the config and the splits in the run directory "
+                    f"can be reused as they are")
             raise FileNotFoundError(f"no model at {model_path}")
-        return cls(keras.models.load_model(str(model_path)),
+
+        from kudio_enhance.checkpoint import load_checkpoint
+        from kudio_enhance.models import build_model
+        from kudio_enhance.train import resolve_device
+
+        run_on = resolve_device(device)
+        checkpoint = load_checkpoint(model_path, map_location=run_on)
+        trained_as = (checkpoint["model"], checkpoint["target"])
+        if trained_as != (cfg.model.name, cfg.model.target):
+            raise ValueError(
+                f"{model_path} holds a {trained_as[0]} trained for the "
+                f"{trained_as[1]!r} target, but {config_name} describes a "
+                f"{cfg.model.name} for {cfg.model.target!r}")
+        model = build_model(cfg)
+        model.load_state_dict(checkpoint["state_dict"])
+        return cls(model.to(run_on),
                    Standardizer.load(run_dir / "stats.npz"),
                    cfg)
 
@@ -82,10 +124,12 @@ class Enhancer:
 
         if self.sequence:
             # trained on fixed windows, applied to the whole utterance at once
-            predicted = self.model.predict(normalised[None, ...], verbose=0)[0]
+            predicted = self._predict(normalised[None, ...])[0]
         else:
             stacked = stack_context(normalised, self.cfg.model.context)
-            predicted = self.model.predict(stacked, verbose=0)
+            predicted = np.concatenate(
+                [self._predict(stacked[start:start + FRAME_BATCH])
+                 for start in range(0, len(stacked), FRAME_BATCH)])
 
         predicted = predicted[:len(spec)]
         if self.mask:
@@ -93,6 +137,15 @@ class Enhancer:
         else:
             enhanced_spec = self.standardizer.inverse(predicted)
         return to_waveform(y, enhanced_spec, self.cfg.audio)
+
+    def _predict(self, x: np.ndarray) -> np.ndarray:
+        """Run the network on one float32 batch, without building a graph."""
+        import torch
+        device = next(self.model.parameters()).device
+        with torch.no_grad():
+            out = self.model(torch.from_numpy(
+                np.ascontiguousarray(x, dtype=np.float32)).to(device))
+        return out.cpu().numpy()
 
     def enhance_file(self, src, dst=None, subtype: str = "PCM_16") -> np.ndarray:
         """Enhance *src*; write to *dst* when given. Returns the waveform.

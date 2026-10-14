@@ -22,6 +22,17 @@ from kudio_enhance._version import __version__
 
 log = logging.getLogger("kudio_enhance")
 
+#: Written above the starter config. A YAML dump cannot carry comments, and
+#: ``units: null`` is the one value in the file that does not explain itself.
+STARTER_HEADER = """\
+# kudio-enhance starter config.
+#
+# model.units: null builds whichever architecture model.name picks at that
+# architecture's default widths; `kudio-enhance models` lists them. Give a
+# list, e.g. [512, 512], to choose the widths yourself.
+
+"""
+
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -94,9 +105,12 @@ def main(argv=None) -> int:
         datefmt="%H:%M:%S")
 
     if args.command == "models":
-        from kudio_enhance.models import list_models
-        for name, description in sorted(list_models().items()):
-            print(f"{name:10s}  {description}")
+        from kudio_enhance.models import REGISTRY
+        width = max(len(spec.description) for spec in REGISTRY.values())
+        for name, spec in sorted(REGISTRY.items()):
+            # in the form the config takes, so it can be pasted into one
+            print(f"{name:10s}  {spec.description:{width}s}  "
+                  f"units: {list(spec.default_units)}")
         return 0
 
     if args.command == "init":
@@ -106,6 +120,8 @@ def main(argv=None) -> int:
             print(f"{path} already exists", file=sys.stderr)
             return 1
         Config().to_yaml(path)
+        path.write_text(STARTER_HEADER + path.read_text(encoding="utf-8"),
+                        encoding="utf-8")
         print(f"wrote {path}")
         return 0
 

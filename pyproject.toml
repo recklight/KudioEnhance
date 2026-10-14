@@ -13,7 +13,7 @@ license-files = ["LICENSE.txt"]
 authors = [{ name = "RL" }]
 keywords = [
     "speech-enhancement", "denoising", "audio", "deep-learning",
-    "keras", "tensorflow", "spectrogram",
+    "pytorch", "spectrogram",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -25,6 +25,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Multimedia :: Sound/Audio :: Speech",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
@@ -34,12 +35,19 @@ dependencies = [
     "kudio>=3.7.1",
     "numpy>=1.22",
     "PyYAML>=6.0",
-    "tensorflow>=2.16",
+    # 2.4.1 is the first torch whose wheels are built against NumPy 2 on
+    # every platform. Older ones, and 2.4.0 on Windows, were built against
+    # NumPy 1 and declare no numpy pin, so pip happily puts them beside the
+    # NumPy 2 kudio allows, where torch.from_numpy fails with "Numpy is not
+    # available"
+    "torch>=2.4.1",
 ]
 
 [project.optional-dependencies]
 eval = ["kudio[eval]>=3.7.1"]
-dev = ["kudio-enhance[eval]", "pytest>=7.0"]
+# 8.2 is the first pytest whose importorskip takes exc_type, which the suite
+# uses to skip on a torch that is installed but cannot be imported
+dev = ["kudio-enhance[eval]", "pytest>=8.2"]
 
 [project.scripts]
 kudio-enhance = "kudio_enhance.cli:main"
