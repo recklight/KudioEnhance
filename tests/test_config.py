@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from kudio_enhance import AudioConfig, Config
+from kudioenhance import AudioConfig, Config
 
 
 def test_defaults_are_usable():
@@ -93,7 +93,7 @@ def test_the_widths_are_the_architectures_own_unless_given():
     """1024 suits a dense layer and not a 2-D convolution, so an unset
     ``units`` follows the model's name — and the three architectures that
     shared the 1024-wide stack keep it."""
-    from kudio_enhance.models import default_units, resolve_units
+    from kudioenhance.models import default_units, resolve_units
 
     cfg = Config()
     assert cfg.model.units is None

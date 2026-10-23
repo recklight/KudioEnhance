@@ -8,8 +8,8 @@ import logging
 import numpy as np
 import pytest
 
-from kudio_enhance.models import build_model
-from kudio_enhance.train import (
+from kudioenhance.models import build_model
+from kudioenhance.train import (
     check_batch_size,
     compile_model,
     fit,
@@ -68,7 +68,7 @@ def test_early_stopping_puts_the_best_weights_back(config, tmp_path, torch):
     validation loss falls while the output passes 0.5 and climbs after. The
     model handed back has to be the one from the bottom of that curve, not
     the last one trained — and so does the file on disk."""
-    from kudio_enhance.checkpoint import load_checkpoint
+    from kudioenhance.checkpoint import load_checkpoint
 
     rng = np.random.default_rng(0)
     width = config.audio.n_bins * (2 * config.model.context + 1)
@@ -246,16 +246,16 @@ def test_verbose_logs_one_line_per_epoch_and_zero_logs_nothing(
         config, arrays, tmp_path, torch, caplog):
     x, y, _, _ = arrays
     config.train.patience = 10
-    with caplog.at_level(logging.INFO, logger="kudio_enhance"):
+    with caplog.at_level(logging.INFO, logger="kudioenhance"):
         fit(build_model(config), x, y, config, tmp_path / "m.pt", epochs=3,
             verbose=0)
-    assert not [r for r in caplog.records if r.name == "kudio_enhance.train"]
+    assert not [r for r in caplog.records if r.name == "kudioenhance.train"]
 
-    with caplog.at_level(logging.INFO, logger="kudio_enhance"):
+    with caplog.at_level(logging.INFO, logger="kudioenhance"):
         fit(build_model(config), x, y, config, tmp_path / "m.pt", epochs=3,
             verbose=1)
     lines = [r.getMessage() for r in caplog.records
-             if r.name == "kudio_enhance.train"
+             if r.name == "kudioenhance.train"
              and r.getMessage().startswith("epoch")]
     assert [line.split()[1] for line in lines] == ["1/3", "2/3", "3/3"]
     assert all("loss" in line and "lr" in line for line in lines)
@@ -264,7 +264,7 @@ def test_verbose_logs_one_line_per_epoch_and_zero_logs_nothing(
 def test_auto_picks_the_cpu_without_a_gpu(torch, monkeypatch):
     """Only CUDA counts: a Mac whose GPU torch can drive through ``mps``
     still trains on the CPU, as the README says."""
-    from kudio_enhance.train import resolve_device
+    from kudioenhance.train import resolve_device
 
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     assert resolve_device("auto").type == "cpu"
@@ -279,7 +279,7 @@ def test_a_dataset_trains_exactly_as_its_arrays_do(config, tmp_path, torch):
     """`fit` on the in-memory dataset — context stacked a batch at a time —
     is the same run as `fit` on the stacked matrix: the same shuffles, the
     same curves, the same weights to the last bit."""
-    from kudio_enhance.data import build_arrays, build_dataset, synthesize
+    from kudioenhance.data import build_arrays, build_dataset, synthesize
 
     config.model.dropout = 0.2
     pairs = synthesize(config, "exp1")
@@ -308,7 +308,7 @@ def test_a_dataset_trains_exactly_as_its_arrays_do(config, tmp_path, torch):
 
 def test_fit_wants_targets_beside_arrays_and_none_beside_a_dataset(
         config, arrays, tmp_path, torch):
-    from kudio_enhance.datasets import InMemoryDataset
+    from kudioenhance.datasets import InMemoryDataset
 
     x, y, _, _ = arrays
     model = build_model(config)

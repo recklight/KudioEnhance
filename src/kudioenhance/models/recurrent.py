@@ -12,7 +12,7 @@ from typing import Sequence
 import torch
 from torch import nn
 
-from kudio_enhance.models._defaults import init_like_keras
+from kudioenhance.models._defaults import init_like_keras
 
 __all__ = ["BLSTM", "build_blstm"]
 

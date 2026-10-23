@@ -25,9 +25,13 @@ import torch
 
 __all__ = ["FORMAT", "VERSION", "save_checkpoint", "load_checkpoint"]
 
-#: What a kudio-enhance checkpoint says it is, so a stray ``.pt`` from some
+#: What a kudioenhance checkpoint says it is, so a stray ``.pt`` from some
 #: other project is refused by name instead of failing as a shape mismatch.
-FORMAT = "kudio-enhance/torch"
+FORMAT = "kudioenhance/torch"
+#: The tag checkpoints carried before 1.0, when the distribution was named
+#: kudio-enhance. The dictionary inside is the same, so runs trained then
+#: still load.
+EARLIER_FORMATS = ("kudio-enhance/torch",)
 #: Bumped when the layout of the dictionary changes.
 VERSION = 1
 
@@ -65,11 +69,12 @@ def load_checkpoint(path, map_location: Union[str, torch.device] = "cpu"
     layout this one cannot know.
     """
     checkpoint = torch.load(path, map_location=map_location, weights_only=True)
-    if not isinstance(checkpoint, dict) or checkpoint.get("format") != FORMAT:
-        raise ValueError(f"{path} is not a kudio-enhance checkpoint")
+    if not isinstance(checkpoint, dict) or \
+            checkpoint.get("format") not in (FORMAT,) + EARLIER_FORMATS:
+        raise ValueError(f"{path} is not a kudioenhance checkpoint")
     if checkpoint.get("version", 0) > VERSION:
         raise ValueError(
-            f"{path} was written by a newer kudio-enhance (checkpoint version "
+            f"{path} was written by a newer kudioenhance (checkpoint version "
             f"{checkpoint['version']}, this release reads up to {VERSION}); "
             f"upgrade to load it")
     return checkpoint

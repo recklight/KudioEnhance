@@ -14,8 +14,8 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from kudio_enhance.config import Config
-from kudio_enhance.data import (
+from kudioenhance.config import Config
+from kudioenhance.data import (
     Pair,
     build_dataset,
     load_manifest,
@@ -23,9 +23,9 @@ from kudio_enhance.data import (
     split_pairs,
     synthesize as synthesize_data,
 )
-from kudio_enhance.evaluate import evaluate_pairs, write_report
-from kudio_enhance.features import Standardizer
-from kudio_enhance.inference import Enhancer
+from kudioenhance.evaluate import evaluate_pairs, write_report
+from kudioenhance.features import Standardizer
+from kudioenhance.inference import Enhancer
 
 log = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ def train(cfg: Config, name: str, *, epochs: Optional[int] = None,
 
     The training and validation sets are held in memory, or streamed from
     the audio every epoch when ``train.streaming`` is set; see
-    :func:`~kudio_enhance.data.build_dataset`. The weights are initialised
+    :func:`~kudioenhance.data.build_dataset`. The weights are initialised
     from the training seed as well, so the same config trains the same model
     twice over. Returns the curves.
 
@@ -81,8 +81,8 @@ def train(cfg: Config, name: str, *, epochs: Optional[int] = None,
     rebuilt exactly whatever the default later becomes. *cfg* itself is left
     as it was.
     """
-    from kudio_enhance.models import build_model, is_sequence, resolve_units
-    from kudio_enhance.train import (
+    from kudioenhance.models import build_model, is_sequence, resolve_units
+    from kudioenhance.train import (
         check_batch_size,
         fit,
         plot_history,

@@ -6,11 +6,11 @@ import numpy as np
 import pytest
 import yaml
 
-from kudio_enhance import inference
-from kudio_enhance.features import Standardizer, spectrogram
-from kudio_enhance.inference import Enhancer
-from kudio_enhance.models import build_model, is_sequence
-from kudio_enhance.train import fit, seeded
+from kudioenhance import inference
+from kudioenhance.features import Standardizer, spectrogram
+from kudioenhance.inference import Enhancer
+from kudioenhance.models import build_model, is_sequence
+from kudioenhance.train import fit, seeded
 
 
 def _write_run(config, tone, name: str = "exp1"):
@@ -57,7 +57,7 @@ def test_the_checkpoint_is_a_plain_dictionary(config, tone, torch):
     """Readable with ``weights_only=True``: no pickled classes, so loading a
     run someone sent you cannot run their code, and reorganising the model
     code cannot strand a trained run."""
-    from kudio_enhance.checkpoint import FORMAT, VERSION
+    from kudioenhance.checkpoint import FORMAT, VERSION
 
     run_dir, _, _ = _write_run(config, tone)
     checkpoint = torch.load(config.model_path("exp1"), weights_only=True)
@@ -100,8 +100,8 @@ def test_a_tensorflow_run_says_to_retrain(config, tmp_path):
     with pytest.raises(FileNotFoundError, match="TensorFlow") as error:
         Enhancer.load(run_dir)
     message = str(error.value)
-    assert "kudio-enhance 0.1" in message
-    assert "Retrain it with 0.2" in message
+    assert "trained by version 0.1 on TensorFlow" in message
+    assert "Retrain it" in message
 
 
 def test_a_run_with_no_model_at_all_says_where_it_looked(config):
@@ -114,7 +114,7 @@ def test_a_run_with_no_model_at_all_says_where_it_looked(config):
 def test_weights_for_another_target_are_refused(config, tone, torch):
     """The config decides what the prediction *means*; weights trained for
     the other target would load cleanly and produce the wrong audio."""
-    from kudio_enhance.checkpoint import load_checkpoint, save_checkpoint
+    from kudioenhance.checkpoint import load_checkpoint, save_checkpoint
 
     run_dir, _, _ = _write_run(config, tone)
     path = config.model_path("exp1")
@@ -126,19 +126,35 @@ def test_weights_for_another_target_are_refused(config, tone, torch):
 
 
 def test_a_file_that_is_not_a_checkpoint_is_refused_by_name(tmp_path, torch):
-    from kudio_enhance.checkpoint import load_checkpoint
+    from kudioenhance.checkpoint import load_checkpoint
 
     path = tmp_path / "someone_else.pt"
     torch.save({"weight": torch.zeros(3)}, path)
-    with pytest.raises(ValueError, match="not a kudio-enhance checkpoint"):
+    with pytest.raises(ValueError, match="not a kudioenhance checkpoint"):
         load_checkpoint(path)
 
 
+def test_a_run_trained_before_1_0_still_loads(config, tone, torch):
+    """Checkpoints written before 1.0 carry the tag under the distribution's
+    earlier name; the dictionary is otherwise the same."""
+    from kudioenhance.checkpoint import load_checkpoint
+
+    run_dir, model, standardizer = _write_run(config, tone)
+    path = config.model_path("exp1")
+    checkpoint = load_checkpoint(path)
+    checkpoint["format"] = "kudio-enhance/torch"
+    torch.save(checkpoint, path)
+    assert load_checkpoint(path)["format"] == "kudio-enhance/torch"
+
+    expected = Enhancer(model, standardizer, config).enhance(tone)
+    assert np.array_equal(Enhancer.load(run_dir).enhance(tone), expected)
+
+
 def test_a_checkpoint_from_a_newer_release_is_refused(tmp_path, torch):
-    from kudio_enhance.checkpoint import FORMAT, VERSION, load_checkpoint
+    from kudioenhance.checkpoint import FORMAT, VERSION, load_checkpoint
 
     path = tmp_path / "future.pt"
     torch.save({"format": FORMAT, "version": VERSION + 1, "model": "ddae",
                 "target": "spectrum", "state_dict": {}}, path)
-    with pytest.raises(ValueError, match="newer kudio-enhance"):
+    with pytest.raises(ValueError, match="newer kudioenhance"):
         load_checkpoint(path)

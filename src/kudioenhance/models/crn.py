@@ -33,7 +33,7 @@ from typing import List, Sequence
 import torch
 from torch import nn
 
-from kudio_enhance.models._defaults import batch_norm_2d, init_like_keras
+from kudioenhance.models._defaults import batch_norm_2d, init_like_keras
 
 __all__ = ["CRN", "build_crn"]
 
@@ -149,7 +149,7 @@ def build_crn(n_bins: int, channels: Sequence[int] = (16, 32, 64, 64, 64),
               dropout: float = 0.1, mask: bool = False) -> CRN:
     """Causal CRN for *n_bins*-bin spectra of any length.
 
-    The default widths are the ones :data:`~kudio_enhance.models.REGISTRY`
+    The default widths are the ones :data:`~kudioenhance.models.REGISTRY`
     builds when ``model.units`` is unset; the reasoning is beside the entry.
 
     :param mask: sigmoid output for a bounded mask; linear otherwise.

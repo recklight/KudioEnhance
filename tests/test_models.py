@@ -5,14 +5,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from kudio_enhance.models import (
+from kudioenhance.models import (
     REGISTRY,
     build_model,
     count_params,
     is_sequence,
     list_models,
 )
-from kudio_enhance.train import seeded
+from kudioenhance.train import seeded
 
 
 def test_registry_is_described():

@@ -12,7 +12,7 @@ from typing import Sequence
 
 from torch import nn
 
-from kudio_enhance.models._defaults import batch_norm, init_like_keras
+from kudioenhance.models._defaults import batch_norm, init_like_keras
 
 __all__ = ["build_ddae"]
 

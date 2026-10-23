@@ -167,7 +167,7 @@ class ModelConfig:
     n_frames: int = 64             # sequence models: frames per training window
     #: Layer widths: a dense layer's units, an LSTM's, or a convolution's
     #: filters or channels, whichever the architecture has. ``None`` means
-    #: the architecture's own default, which ``kudio-enhance models`` lists.
+    #: the architecture's own default, which ``kudioenhance models`` lists.
     #: No single default serves them all: 1024 is a sensible width for a
     #: dense layer and an absurd one for a 2-D convolution, each of whose
     #: channels is a whole time-frequency map. Training writes the widths it
@@ -245,7 +245,7 @@ class TrainConfig:
     #: Compute the training features from the audio a file at a time, every
     #: epoch, instead of holding them in memory: for a training set too big
     #: to hold, at the price of a pass over the audio per epoch. See
-    #: :func:`kudio_enhance.data.build_dataset`.
+    #: :func:`kudioenhance.data.build_dataset`.
     streaming: bool = False
 
     def __post_init__(self) -> None:
@@ -328,7 +328,7 @@ class Config:
         return Path(self.train.out_dir) / name
 
     def model_path(self, name: str) -> Path:
-        """The trained weights. See :mod:`kudio_enhance.checkpoint`."""
+        """The trained weights. See :mod:`kudioenhance.checkpoint`."""
         return self.run_dir(name) / f"{self.model.name}.pt"
 
     def stats_path(self, name: str) -> Path:
@@ -341,5 +341,5 @@ class Config:
         return self.run_dir(name) / "report.csv"
 
     def history_path(self, name: str) -> Path:
-        """Where the training curves land. See :func:`kudio_enhance.save_history`."""
+        """Where the training curves land. See :func:`kudioenhance.save_history`."""
         return self.run_dir(name) / "history.json"

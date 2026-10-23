@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 
 import kudio
-from kudio_enhance.config import AudioConfig, Config, ModelConfig
-from kudio_enhance.features import (
+from kudioenhance.config import AudioConfig, Config, ModelConfig
+from kudioenhance.features import (
     apply_mask,
     ideal_ratio_mask,
     spectrogram,
@@ -117,8 +117,8 @@ def test_the_target_survives_a_round_trip_through_yaml(tmp_path):
 def test_a_mask_target_is_not_standardised(config):
     """It is already on a bounded scale; putting the input's mean and standard
     deviation through it would produce a target the sigmoid cannot reach."""
-    from kudio_enhance.data import build_arrays
-    from kudio_enhance.pipeline import synthesize
+    from kudioenhance.data import build_arrays
+    from kudioenhance.pipeline import synthesize
 
     config.model.target = "irm"
     pairs = synthesize(config, "exp_mask")
@@ -129,8 +129,8 @@ def test_a_mask_target_is_not_standardised(config):
 
 
 def test_a_spectrum_target_is_standardised(config):
-    from kudio_enhance.data import build_arrays
-    from kudio_enhance.pipeline import synthesize
+    from kudioenhance.data import build_arrays
+    from kudioenhance.pipeline import synthesize
 
     config.model.target = "spectrum"
     pairs = synthesize(config, "exp_spec")
@@ -140,8 +140,8 @@ def test_a_spectrum_target_is_standardised(config):
 
 
 def test_both_targets_produce_the_same_input_shape(config):
-    from kudio_enhance.data import build_arrays
-    from kudio_enhance.pipeline import synthesize
+    from kudioenhance.data import build_arrays
+    from kudioenhance.pipeline import synthesize
 
     shapes = {}
     for target in ("spectrum", "irm"):
@@ -157,7 +157,7 @@ def test_both_targets_produce_the_same_input_shape(config):
 
 @pytest.mark.parametrize("name", ["ddae", "blstm", "conv_ae", "crn", "unet"])
 def test_a_mask_model_can_only_output_zero_to_one(config, predict, name):
-    from kudio_enhance.models import build_model
+    from kudioenhance.models import build_model
 
     config.model.name = name
     config.model.target = "irm"
@@ -179,7 +179,7 @@ def test_a_mask_model_can_only_output_zero_to_one(config, predict, name):
 
 def test_a_spectrum_model_is_unbounded(config, predict):
     """...which is the cost: it has to learn the level as well as the shape."""
-    from kudio_enhance.models import build_model
+    from kudioenhance.models import build_model
 
     config.model.name = "ddae"
     config.model.target = "spectrum"
@@ -199,7 +199,7 @@ def test_the_conv_residual_shortcut_is_dropped_for_a_mask(config, torch,
     Silencing the head shows which one a model is: the spectrum model then
     hands its input straight back, and the mask model keeps half of
     everything whatever the input was."""
-    from kudio_enhance.models import build_model
+    from kudioenhance.models import build_model
 
     config.model.name = "conv_ae"
     probe = np.random.default_rng(0).standard_normal(
@@ -220,8 +220,8 @@ def test_the_conv_residual_shortcut_is_dropped_for_a_mask(config, torch,
 # ------------------------------------------------------------- end to end
 
 def test_a_mask_model_trains_and_enhances(config, tmp_path, torch):
-    from kudio_enhance import pipeline
-    from kudio_enhance.inference import Enhancer
+    from kudioenhance import pipeline
+    from kudioenhance.inference import Enhancer
 
     config.model.name = "ddae"
     config.model.target = "irm"

@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """Command line interface.
 
-    kudio-enhance models                          # list architectures
-    kudio-enhance init config.yaml                # write a starter config
-    kudio-enhance synth    -c config.yaml -n exp1 # stage 1: mix the dataset
-    kudio-enhance train    -c config.yaml -n exp1 # stage 2: fit the model
-    kudio-enhance evaluate -c config.yaml -n exp1 # stage 3: score the test split
-    kudio-enhance run      -c config.yaml -n exp1 # all three
-    kudio-enhance curves   -c config.yaml -n exp1 # did it actually learn?
-    kudio-enhance denoise runs/exp1 noisy.wav out.wav
-    kudio-enhance denoise runs/exp1 noisy/ clean/ --recursive --report
+    kudioenhance models                          # list architectures
+    kudioenhance init config.yaml                # write a starter config
+    kudioenhance synth    -c config.yaml -n exp1 # stage 1: mix the dataset
+    kudioenhance train    -c config.yaml -n exp1 # stage 2: fit the model
+    kudioenhance evaluate -c config.yaml -n exp1 # stage 3: score the test split
+    kudioenhance run      -c config.yaml -n exp1 # all three
+    kudioenhance curves   -c config.yaml -n exp1 # did it actually learn?
+    kudioenhance denoise runs/exp1 noisy.wav out.wav
+    kudioenhance denoise runs/exp1 noisy/ clean/ --recursive --report
 """
 from __future__ import annotations
 
@@ -18,17 +18,17 @@ import logging
 import sys
 from pathlib import Path
 
-from kudio_enhance._version import __version__
+from kudioenhance._version import __version__
 
-log = logging.getLogger("kudio_enhance")
+log = logging.getLogger("kudioenhance")
 
 #: Written above the starter config. A YAML dump cannot carry comments, and
 #: ``units: null`` is the one value in the file that does not explain itself.
 STARTER_HEADER = """\
-# kudio-enhance starter config.
+# kudioenhance starter config.
 #
 # model.units: null builds whichever architecture model.name picks at that
-# architecture's default widths; `kudio-enhance models` lists them. Give a
+# architecture's default widths; `kudioenhance models` lists them. Give a
 # list, e.g. [512, 512], to choose the widths yourself.
 
 """
@@ -36,10 +36,10 @@ STARTER_HEADER = """\
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="kudio-enhance",
+        prog="kudioenhance",
         description="Train and run learned speech-enhancement models.")
     parser.add_argument("--version", action="version",
-                        version=f"kudio-enhance {__version__}")
+                        version=f"kudioenhance {__version__}")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="debug logging")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -93,7 +93,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _load(args):
-    from kudio_enhance.config import Config
+    from kudioenhance.config import Config
     return Config.from_yaml(args.config)
 
 
@@ -105,7 +105,7 @@ def main(argv=None) -> int:
         datefmt="%H:%M:%S")
 
     if args.command == "models":
-        from kudio_enhance.models import REGISTRY
+        from kudioenhance.models import REGISTRY
         width = max(len(spec.description) for spec in REGISTRY.values())
         for name, spec in sorted(REGISTRY.items()):
             # in the form the config takes, so it can be pasted into one
@@ -114,7 +114,7 @@ def main(argv=None) -> int:
         return 0
 
     if args.command == "init":
-        from kudio_enhance.config import Config
+        from kudioenhance.config import Config
         path = Path(args.path)
         if path.exists():
             print(f"{path} already exists", file=sys.stderr)
@@ -126,7 +126,7 @@ def main(argv=None) -> int:
         return 0
 
     if args.command == "denoise":
-        from kudio_enhance.inference import Enhancer
+        from kudioenhance.inference import Enhancer
         enhancer = Enhancer.load(args.run_dir)
         if args.recursive:
             result = enhancer.enhance_folder(args.input, args.output,
@@ -142,11 +142,11 @@ def main(argv=None) -> int:
         print(f"wrote {args.output}")
         return 0
 
-    from kudio_enhance import pipeline
+    from kudioenhance import pipeline
     cfg = _load(args)
 
     if args.command == "curves":
-        from kudio_enhance.train import load_history, summarise_history
+        from kudioenhance.train import load_history, summarise_history
         path = cfg.history_path(args.name)
         if not path.is_file():
             print(f"{path} not found — train the model first", file=sys.stderr)

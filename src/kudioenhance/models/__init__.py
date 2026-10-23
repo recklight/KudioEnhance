@@ -2,11 +2,11 @@
 """Architectures for spectrogram-domain speech enhancement.
 
 Builders return plain :class:`torch.nn.Module` instances;
-:mod:`kudio_enhance.train` owns the optimiser, the loss and the loop. The
+:mod:`kudioenhance.train` owns the optimiser, the loss and the loop. The
 builders import torch only when called, so listing the architectures does not
 need it.
 """
-from kudio_enhance.models.registry import (
+from kudioenhance.models.registry import (
     REGISTRY,
     ModelSpec,
     build_model,

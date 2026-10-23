@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """The training loop, and the curves it leaves behind.
 
-Kept separate from :mod:`kudio_enhance.models` so architectures stay pure
+Kept separate from :mod:`kudioenhance.models` so architectures stay pure
 builders and every experiment shares one optimisation setup: Adam on MSE, the
 best epoch checkpointed, the learning rate halved on a plateau, and training
 stopped once the plateau outlasts its patience.
@@ -22,7 +22,7 @@ from typing import Dict, Iterable, Iterator, List, Optional, Tuple
 
 import numpy as np
 
-from kudio_enhance.config import Config
+from kudioenhance.config import Config
 
 log = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ def _frame_wise(cfg: Config) -> bool:
     A name the registry does not know is a model of the caller's own, and
     left to the caller.
     """
-    from kudio_enhance.models.registry import REGISTRY
+    from kudioenhance.models.registry import REGISTRY
     spec = REGISTRY.get(cfg.model.name)
     return spec is not None and not spec.sequence
 
@@ -139,7 +139,7 @@ def compile_model(model, cfg: Config):
     written against 0.1 still runs.
     """
     warnings.warn(
-        "compile_model() does nothing since kudio-enhance 0.2; fit() sets up "
+        "compile_model() does nothing since version 0.2; fit() sets up "
         "the optimiser and loss itself, so pass the model straight to it",
         DeprecationWarning, stacklevel=2)
     return model
@@ -151,7 +151,7 @@ def fit(model, x, y: Optional[np.ndarray], cfg: Config, model_path,
     """Train *model* in place, checkpointing its best epoch to *model_path*.
 
     *x* and *y* are the training inputs and targets as arrays — or *x* is a
-    dataset from :func:`kudio_enhance.data.build_dataset`, held in memory or
+    dataset from :func:`kudioenhance.data.build_dataset`, held in memory or
     streamed, and *y* is ``None``, because a dataset carries its own targets.
     *validation_data* is likewise an ``(x, y)`` pair of arrays or a dataset.
     Arrays are trained on as the in-memory dataset they make, so the two give
@@ -181,8 +181,8 @@ def fit(model, x, y: Optional[np.ndarray], cfg: Config, model_path,
     :param verbose: ``0`` is silent; ``1`` or more logs one line per epoch.
     """
     import torch
-    from kudio_enhance.checkpoint import save_checkpoint
-    from kudio_enhance.datasets import InMemoryDataset, as_dataset
+    from kudioenhance.checkpoint import save_checkpoint
+    from kudioenhance.datasets import InMemoryDataset, as_dataset
 
     check_batch_size(cfg)
     frame_wise = _frame_wise(cfg)

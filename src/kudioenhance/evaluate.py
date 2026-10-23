@@ -15,9 +15,9 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 import kudio
-from kudio_enhance.config import Config
-from kudio_enhance.data import Pair
-from kudio_enhance.inference import Enhancer
+from kudioenhance.config import Config
+from kudioenhance.data import Pair
+from kudioenhance.inference import Enhancer
 
 log = logging.getLogger(__name__)
 

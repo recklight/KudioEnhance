@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """The training set as torch sees it: held in memory, or streamed from disk.
 
-:func:`kudio_enhance.data.build_dataset` returns one of the two, and
-:func:`kudio_enhance.train.fit` trains on either. All the loop asks of a
+:func:`kudioenhance.data.build_dataset` returns one of the two, and
+:func:`kudioenhance.train.fit` trains on either. All the loop asks of a
 training set is two ways through it:
 
 ``shuffled_batches(batch_size, generator)``
@@ -17,7 +17,7 @@ costs a Python call and a tensor for every frame — and frame-wise training
 draws hundreds of thousands of them an epoch. They are still ordinary torch
 datasets, and work in a ``DataLoader`` for anyone who wants one.
 
-Importing this module imports torch, which is why :mod:`kudio_enhance.data`
+Importing this module imports torch, which is why :mod:`kudioenhance.data`
 only reaches for it once a dataset is actually built.
 """
 from __future__ import annotations
@@ -28,10 +28,10 @@ from typing import Iterable, Iterator, List, Optional, Sequence, Set, Tuple
 import numpy as np
 import torch
 
-from kudio_enhance.config import Config
-from kudio_enhance.data import Pair, pair_examples
-from kudio_enhance.features import Standardizer
-from kudio_enhance.train import training_seed
+from kudioenhance.config import Config
+from kudioenhance.data import Pair, pair_examples
+from kudioenhance.features import Standardizer
+from kudioenhance.train import training_seed
 
 log = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ def _never_a_lone_last(batches: Iterable[Batch]) -> Iterator[Batch]:
     leaves at the end of an epoch joins the batch before it instead. Only
     the last batch is looked at. Every batch is a single example at a
     ``batch_size`` of 1, and a set of one example has no batch before it to
-    join; :func:`~kudio_enhance.train.fit` refuses both for the frame-wise
+    join; :func:`~kudioenhance.train.fit` refuses both for the frame-wise
     model that cannot train on them, and the sequence models can. Two
     batches are held back, which is what it takes to know which one is last.
     """
@@ -149,7 +149,7 @@ class StreamingDataset(torch.utils.data.IterableDataset):
 
     A shuffled epoch takes the files in a fresh order drawn from the
     generator and works out each one's examples with
-    :func:`~kudio_enhance.data.pair_examples` — exactly its rows of
+    :func:`~kudioenhance.data.pair_examples` — exactly its rows of
     ``build_arrays``, so a frame-wise row is stacked from its own file's
     frames and never reaches into the next. They join a pool, and every
     batch is drawn at random, without replacement, from everything in the

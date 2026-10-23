@@ -9,14 +9,14 @@ import math
 import numpy as np
 import pytest
 
-from kudio_enhance.models import (
+from kudioenhance.models import (
     REGISTRY,
     build_model,
     count_params,
     default_units,
     is_sequence,
 )
-from kudio_enhance.train import seeded
+from kudioenhance.train import seeded
 
 TWO_D = ["crn", "unet"]
 
@@ -49,8 +49,8 @@ def test_both_are_sequence_models_built_small_by_default():
 
 def test_the_builders_default_to_what_the_registry_builds(torch):
     """Two copies of one default must not drift apart."""
-    from kudio_enhance.models.crn import build_crn
-    from kudio_enhance.models.unet import build_unet
+    from kudioenhance.models.crn import build_crn
+    from kudioenhance.models.unet import build_unet
 
     for name, builder in (("crn", build_crn), ("unet", build_unet)):
         default = inspect.signature(builder).parameters["channels"].default
@@ -79,8 +79,8 @@ def test_any_spectrogram_comes_back_the_same_shape(config, torch, predict,
 def test_odd_and_even_bin_counts_are_rebuilt_exactly(torch, predict, bins):
     """Halving rounds up, so 2n - 1 and 2n bins meet at n on the way down;
     the way back up has to know which it came from."""
-    from kudio_enhance.models.crn import build_crn
-    from kudio_enhance.models.unet import build_unet
+    from kudioenhance.models.crn import build_crn
+    from kudioenhance.models.unet import build_unet
 
     for model in (build_crn(bins, channels=[4, 8, 8]),
                   build_unet(channels=[4, 8, 8])):

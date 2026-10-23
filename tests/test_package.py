@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""What `import kudio_enhance` gives you, and what it costs."""
+"""What `import kudioenhance` gives you, and what it costs."""
 from __future__ import annotations
 
 import os
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-import kudio_enhance
+import kudioenhance
 
 SRC = Path(__file__).resolve().parent.parent / "src"
 
@@ -30,35 +30,35 @@ def test_importing_the_package_does_not_import_torch(tmp_path):
     with no deep-learning framework at all, and cheap to import on one that
     has it."""
     out = _fresh_python(
-        "import sys, kudio_enhance\n"
+        "import sys, kudioenhance\n"
         "print('torch' in sys.modules)", cwd=tmp_path)
     assert out.strip() == "False"
 
 
 def test_the_commands_that_need_no_model_do_not_import_torch(tmp_path):
     out = _fresh_python(
-        "import sys, kudio_enhance\n"
-        "from kudio_enhance.cli import main\n"
+        "import sys, kudioenhance\n"
+        "from kudioenhance.cli import main\n"
         "main(['models'])\n"
         "main(['init', 'config.yaml'])\n"
-        "kudio_enhance.Enhancer\n"
+        "kudioenhance.Enhancer\n"
         "print('torch loaded:', 'torch' in sys.modules)", cwd=tmp_path)
     assert "torch loaded: False" in out
     assert (tmp_path / "config.yaml").is_file()
 
 
 def test_the_enhancer_is_reachable_from_the_package():
-    """KudioStudio shows ``kudio_enhance.Enhancer.load('runs/exp1')`` as the
+    """KudioStudio shows ``kudioenhance.Enhancer.load('runs/exp1')`` as the
     code behind its learned-denoising panel; that has to be true."""
-    from kudio_enhance.inference import Enhancer
+    from kudioenhance.inference import Enhancer
 
-    assert kudio_enhance.Enhancer is Enhancer
-    assert "Enhancer" in kudio_enhance.__all__
-    from kudio_enhance import Enhancer as imported
+    assert kudioenhance.Enhancer is Enhancer
+    assert "Enhancer" in kudioenhance.__all__
+    from kudioenhance import Enhancer as imported
     assert imported is Enhancer
 
 
 def test_a_misspelt_name_is_still_an_attribute_error():
     with pytest.raises(AttributeError, match="Enhancr"):
-        kudio_enhance.Enhancr
+        kudioenhance.Enhancr
 

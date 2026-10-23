@@ -51,7 +51,7 @@ def corpus(tmp_path) -> dict:
 @pytest.fixture
 def config(corpus):
     """A configuration small enough to train in a couple of seconds."""
-    from kudio_enhance import Config
+    from kudioenhance import Config
 
     return Config.from_dict({
         "audio": {"sr": SR, "n_fft": 256, "hop_length": 128, "win_length": 256},

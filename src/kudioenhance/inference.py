@@ -14,15 +14,15 @@ from typing import Optional
 import numpy as np
 
 import kudio
-from kudio_enhance.config import Config
-from kudio_enhance.features import (
+from kudioenhance.config import Config
+from kudioenhance.features import (
     Standardizer,
     apply_mask,
     spectrogram,
     stack_context,
     to_waveform,
 )
-from kudio_enhance.models import is_sequence, resolve_units
+from kudioenhance.models import is_sequence, resolve_units
 
 log = logging.getLogger(__name__)
 
@@ -75,16 +75,16 @@ class Enhancer:
             legacy = model_path.with_suffix(".keras")
             if legacy.is_file():
                 raise FileNotFoundError(
-                    f"{run_dir} was trained by kudio-enhance 0.1 on "
-                    f"TensorFlow ({legacy.name}); kudio-enhance 0.2 runs on "
-                    f"PyTorch and cannot read Keras weights. Retrain it with "
-                    f"0.2 — the config and the splits in the run directory "
+                    f"{run_dir} was trained by version 0.1 on TensorFlow "
+                    f"({legacy.name}); since 0.2 training and inference run "
+                    f"on PyTorch, which cannot read Keras weights. Retrain "
+                    f"it — the config and the splits in the run directory "
                     f"can be reused as they are")
             raise FileNotFoundError(f"no model at {model_path}")
 
-        from kudio_enhance.checkpoint import load_checkpoint
-        from kudio_enhance.models import build_model
-        from kudio_enhance.train import resolve_device
+        from kudioenhance.checkpoint import load_checkpoint
+        from kudioenhance.models import build_model
+        from kudioenhance.train import resolve_device
 
         run_on = resolve_device(device)
         checkpoint = load_checkpoint(model_path, map_location=run_on)

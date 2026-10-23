@@ -30,7 +30,7 @@ import torch
 from torch import nn
 from torch.nn import functional
 
-from kudio_enhance.models._defaults import batch_norm_2d, init_like_keras
+from kudioenhance.models._defaults import batch_norm_2d, init_like_keras
 
 __all__ = ["UNet", "build_unet"]
 
@@ -110,7 +110,7 @@ def build_unet(channels: Sequence[int] = (16, 32, 64, 128),
     """2-D U-Net with one level per entry of *channels*.
 
     It takes no ``n_bins``: nothing in it depends on the number of bins. The
-    default widths are the ones :data:`~kudio_enhance.models.REGISTRY` builds
+    default widths are the ones :data:`~kudioenhance.models.REGISTRY` builds
     when ``model.units`` is unset; the reasoning is beside the entry.
 
     :param mask: sigmoid output for a bounded mask; linear otherwise.

@@ -1,10 +1,11 @@
-# kudio-enhance
+# KudioEnhance
 
-[English](README.md) | **繁體中文**
+[English](https://github.com/recklight/KudioEnhance/blob/master/README.md) | **繁體中文**
 
+[![PyPI](https://img.shields.io/pypi/v/kudioenhance.svg)](https://pypi.org/project/kudioenhance/)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.4.1%2B-ee4c2c.svg)](https://pytorch.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.txt)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/recklight/KudioEnhance/blob/master/LICENSE.txt)
 [![kudio](https://img.shields.io/pypi/v/kudio.svg?label=kudio)](https://pypi.org/project/kudio/)
 
 **訓練並執行學習式語音增強（降噪）模型**，建立在
@@ -12,9 +13,9 @@
 
 三個階段，一個設定檔：
 
-[![KudioEnhance workflow](docs/images/workflow.png)](https://raw.githack.com/recklight/KudioEnhance/master/docs/workflow.html?theme=dark)
+[![KudioEnhance workflow](https://raw.githubusercontent.com/recklight/KudioEnhance/master/docs/images/workflow.png)](https://raw.githack.com/recklight/KudioEnhance/master/docs/workflow.html?theme=dark)
 
-這張圖連到互動版本——[線上開啟](https://raw.githack.com/recklight/KudioEnhance/master/docs/workflow.html?theme=dark)，或在 clone 下來的專案中開啟 [`docs/workflow.html`](docs/workflow.html)。可以縮放、搜尋節點、追蹤兩個節點之間的路徑，而且大多數方塊都連到它所依據的原始碼行，並固定在當時核對的 commit。
+這張圖連到互動版本——[線上開啟](https://raw.githack.com/recklight/KudioEnhance/master/docs/workflow.html?theme=dark)，或在 clone 下來的專案中開啟 `docs/workflow.html`。可以縮放、搜尋節點、追蹤兩個節點之間的路徑，而且大多數方塊都連到它所依據的原始碼行，並固定在當時核對的 commit。
 
 每個階段讀取前一個階段寫出的結果，所以可以不重新混音就重新訓練，也可以不重新訓練就重新評估。`run` 會依序執行三個階段。
 
@@ -22,13 +23,11 @@
 
 ## 安裝
 
-本套件不在 PyPI 上。請 clone 後從原始碼安裝：
-
 ```bash
-git clone https://github.com/recklight/KudioEnhance.git
-cd KudioEnhance
-pip install -e ".[dev]"
+pip install kudioenhance
 ```
+
+指令是 `kudioenhance`，套件則是 `import kudioenhance`。
 
 需要 **Python 3.9+** 與 **PyTorch ≥ 2.4.1**。模型是單純的 `torch.nn` 模組，由本套件自己的訓練迴圈訓練——不用 Keras，也不用 Lightning。更舊的 torch wheel，以及 Windows 上的 2.4.0，是針對 NumPy 1 編譯的；pip 不會阻止它們和 NumPy 2 裝在一起，結果會在第一次 `torch.from_numpy` 時失敗。
 
@@ -36,20 +35,20 @@ pip install -e ".[dev]"
 
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install -e ".[dev]"
+pip install kudioenhance
 ```
 
 PyPI 上的 Windows 與 macOS wheel 不含 CUDA，所以體積很小。只要 torch 偵測得到 NVIDIA GPU，訓練就會使用它（`train` 區段的 `device: auto`），因此同一份設定在兩種機器上都能用。Apple 的 GPU 不會被使用：torch 可以透過 `mps` 使用它，但本套件不會要求這麼做，在 Mac 上訓練會跑在 CPU。
 
-STOI 與 SDR 是選用的：`pip install -e ".[eval]"`。**PESQ 是另一個獨立的 extra**，`pip install "kudio[pesq]"`，因為它要從原始碼編譯——需要 C 編譯器，在 Windows 上是 MSVC Build Tools——所以刻意不放進 `[eval]` 和 `[all]`，否則它們會裝不起來。
+STOI 與 SDR 是選用的：`pip install "kudioenhance[eval]"`。**PESQ 是另一個獨立的 extra**，`pip install "kudio[pesq]"`，因為它要從原始碼編譯——需要 C 編譯器，在 Windows 上是 MSVC Build Tools——所以刻意不放進 `[eval]` 和 `[all]`，否則它們會裝不起來。
 
 PESQ 有兩種尺度。`evaluate` 預設回報 MOS-LQO；加上 `--pesq-scale raw` 則是多數語音增強論文引用的窄頻 P.862 分數。它們是不同的尺度，不是四捨五入的差別：raw 2.03 大約等於 MOS-LQO 1.65。
 
 ## 快速開始
 
 ```bash
-kudio-enhance init config.yaml        # 產生起始設定檔
-kudio-enhance run -c config.yaml -n exp1
+kudioenhance init config.yaml        # 產生起始設定檔
+kudioenhance run -c config.yaml -n exp1
 ```
 
 這會混出資料集、訓練，並印出前後的分數：
@@ -64,8 +63,8 @@ report -> runs/exp1/report.csv
 接著用訓練好的 run 對任何音訊降噪：
 
 ```bash
-kudio-enhance denoise runs/exp1 noisy.wav enhanced.wav
-kudio-enhance denoise runs/exp1 noisy/ clean/ --recursive --report
+kudioenhance denoise runs/exp1 noisy.wav enhanced.wav
+kudioenhance denoise runs/exp1 noisy/ clean/ --recursive --report
 ```
 
 資料夾模式對整棵目錄樹只載入模型**一次**，輸出會鏡像輸入的目錄結構，加上 `--report` 會告訴你噪音底降了多少。
@@ -73,7 +72,7 @@ kudio-enhance denoise runs/exp1 noisy/ clean/ --recursive --report
 之後再確認它到底有沒有學到東西：
 
 ```bash
-kudio-enhance curves -c config.yaml -n exp1
+kudioenhance curves -c config.yaml -n exp1
 ```
 
 ```
@@ -87,9 +86,9 @@ kudio-enhance curves -c config.yaml -n exp1
 ### 逐階段執行
 
 ```bash
-kudio-enhance synth    -c config.yaml -n exp1   # 混音並固定資料切分
-kudio-enhance train    -c config.yaml -n exp1   # 訓練（--epochs 1 可做冒煙測試）
-kudio-enhance evaluate -c config.yaml -n exp1   # 評分（--full 加上 PESQ/STOI）
+kudioenhance synth    -c config.yaml -n exp1   # 混音並固定資料切分
+kudioenhance train    -c config.yaml -n exp1   # 訓練（--epochs 1 可做冒煙測試）
+kudioenhance evaluate -c config.yaml -n exp1   # 評分（--full 加上 PESQ/STOI）
 ```
 
 每個階段讀取前一個階段寫出的結果，所以可以不重新混音就重新訓練，或不重新訓練就重新評估。
@@ -142,7 +141,7 @@ train:
 ## 模型
 
 ```bash
-kudio-enhance models
+kudioenhance models
 ```
 
 ```
@@ -266,11 +265,11 @@ train:
 - **`shuffle_buffer: 0` 不保留任何樣本。** 檔案仍以新的順序讀入，每個檔案內的樣本也會打亂，但每個批次只從正在讀取的檔案以及先前抽剩的（少於一個批次）中抽取——也就是同一段錄音的相鄰幀，訓練效果較差。要求這樣做時訓練會發出警告。記憶體模式不使用這個設定。
 - **可重現。** 檔案順序與每一次從池中抽取都來自 `train.seed`，所以串流的訓練在 CPU 上可以精確重現到最後一位，和記憶體模式一樣。不過它與記憶體模式是不同的訓練：樣本相同，順序不同。
 
-兩種模式都經過 `kudio_enhance.data.build_dataset`，而 `train.fit` 接受它的回傳值來取代陣列：
+兩種模式都經過 `kudioenhance.data.build_dataset`，而 `train.fit` 接受它的回傳值來取代陣列：
 
 ```python
-from kudio_enhance.data import build_dataset
-from kudio_enhance.train import fit
+from kudioenhance.data import build_dataset
+from kudioenhance.train import fit
 
 train_set, std = build_dataset(train_pairs, cfg, sequence=False, fit=True)
 history = fit(model, train_set, None, cfg, "runs/exp1/ddae.pt")
@@ -281,7 +280,7 @@ history = fit(model, train_set, None, cfg, "runs/exp1/ddae.pt")
 ## Python API
 
 ```python
-from kudio_enhance import Config, Enhancer, pipeline
+from kudioenhance import Config, Enhancer, pipeline
 
 cfg = Config.from_yaml("config.yaml")
 summary = pipeline.run(cfg, "exp1")          # synth + train + evaluate
@@ -326,7 +325,7 @@ runs/exp1/
 docs/
 ├── images/workflow.png  # README 的圖
 └── workflow.html        # 同一張圖的互動版
-src/kudio_enhance/
+src/kudioenhance/
 ├── config.py        # 有型別的 dataclass、YAML 讀寫、run 路徑
 ├── data.py          # 混音、manifest、切分、訓練集
 ├── datasets.py      # torch 看到的訓練集：常駐或串流
@@ -343,18 +342,23 @@ src/kudio_enhance/
 ├── inference.py     # Enhancer
 ├── evaluate.py      # 逐檔評分 + CSV 報告
 ├── pipeline.py      # 三個階段
-└── cli.py           # kudio-enhance
+└── cli.py           # kudioenhance
 ```
 
 模型建構函式回傳單純的 `torch.nn.Module`；`train.py` 負責優化器、損失函數與迴圈。這樣架構可以被檢視，而不必綁定某種優化設定。
 
 ## 測試
 
+從原始碼安裝開發用的 extra：
+
 ```bash
+git clone https://github.com/recklight/KudioEnhance.git
+cd KudioEnhance
+pip install -e ".[dev]"
 pytest -q
 ```
 
-共 228 個測試。測試套件會在暫存目錄建立一個很小的合成語料，並在幾秒內跑完整個流程——混音、訓練一個 epoch、增強、評分。需要 PyTorch 的測試會明確要求它，沒安裝時會乾淨地跳過；其餘 105 個仍會執行。
+共 229 個測試。測試套件會在暫存目錄建立一個很小的合成語料，並在幾秒內跑完整個流程——混音、訓練一個 epoch、增強、評分。需要 PyTorch 的測試會明確要求它，沒安裝時會乾淨地跳過；其餘 105 個仍會執行。
 
 遮罩測試檢查的是*公式*，而不只是能不能跑：全是語音時為 1、全是噪音時為 0、功率相等時為 1/√2，而 oracle 遮罩必須真的提升 SI-SDR。這些不成立，就代表目標是錯的，不管損失曲線怎麼說。架構測試也一樣：改動 *t* 之後的任何一幀，`crn` 到 *t* 為止的輸出必須逐位元不變；`unet` 的則必須改變，因為它的說明寫著它是非因果的。訓練集也是：記憶體模式必須逐位元交回堆疊矩陣的列，依 manifest 順序的串流掃描也是，而一個打亂的 epoch 必須讓每個樣本恰好出現一次，並且在相同 seed 下得到相同順序。兩種模式必須以逐位元相同的統計量做正規化。
 
@@ -372,10 +376,10 @@ pytest -q
 權重則不同。0.1 訓練出的 run 目錄裡是 `ddae.keras`，沒有 `ddae.pt`，`Enhancer.load` 會明說這點並要求重新訓練，而不是回報找不到檔案。其中的設定與已固定的資料切分可以原樣沿用：
 
 ```bash
-kudio-enhance train -c runs/exp1/config.yaml -n exp1
+kudioenhance train -c runs/exp1/config.yaml -n exp1
 ```
 
-`fit` 以一般的 dict 回傳訓練曲線，而不是 Keras 的 `History`；`compile_model` 成為已棄用、不做任何事的函式，保留它是為了讓 0.1 時代呼叫 `fit(compile_model(...))` 的腳本仍能執行。`build_callbacks` 已移除，匯入它會失敗：`fit` 自己處理檢查點、提早停止與學習率減半，所以原本為 `model.fit` 建立 Keras callback 的程式，請改呼叫 `kudio_enhance.train.fit`。
+`fit` 以一般的 dict 回傳訓練曲線，而不是 Keras 的 `History`；`compile_model` 成為已棄用、不做任何事的函式，保留它是為了讓 0.1 時代呼叫 `fit(compile_model(...))` 的腳本仍能執行。`build_callbacks` 已移除，匯入它會失敗：`fit` 自己處理檢查點、提早停止與學習率減半，所以原本為 `model.fit` 建立 Keras callback 的程式，請改呼叫 `kudioenhance.train.fit`。
 
 `ddae` 的 `train.batch_size` 必須是 2 以上，訓練會在讀取任何音訊之前就指出這點；只有一幀的 `ddae` 訓練集也會被拒絕。它的 BatchNorm 要對批次取變異數，而單一樣本沒有變異數。0.1 接受批次大小 1，但 Keras 在那種情況下會把每個單元正規化成常數，所以最後一個 BatchNorm 之前的層全都沒有被訓練到。序列模型仍可用一個視窗的批次訓練。
 
@@ -383,17 +387,17 @@ kudio-enhance train -c runs/exp1/config.yaml -n exp1
 
 訓練改經過 `build_dataset` 而不是 `build_arrays`，所以逐幀模型的上下文不再為整個資料集堆疊在記憶體中；訓練結果精確相同。`fit` 可以用資料集取代 `x` 並傳入 `y=None`，也仍接受陣列。`train.streaming` 是新增的；`train.shuffle_buffer` 以前在設定裡卻沒有任何程式讀取，現在用來決定串流打亂的大小——也只用在這裡。
 
-新增兩個架構 `crn` 與 `unet`，`model.units` 的預設值改為 `null`，代表架構自己的寬度。有設定 `units` 的設定檔建出的模型與以前相同，沒設定的也一樣：`ddae`、`blstm` 與 `conv_ae` 的預設仍是 `[1024, 1024, 1024]`。直接讀取 `cfg.model.units` 的程式現在可能拿到 `None`；`kudio_enhance.models.resolve_units(cfg)` 會回傳一份把寬度明確寫出的副本。
+新增兩個架構 `crn` 與 `unet`，`model.units` 的預設值改為 `null`，代表架構自己的寬度。有設定 `units` 的設定檔建出的模型與以前相同，沒設定的也一樣：`ddae`、`blstm` 與 `conv_ae` 的預設仍是 `[1024, 1024, 1024]`。直接讀取 `cfg.model.units` 的程式現在可能拿到 `None`；`kudioenhance.models.resolve_units(cfg)` 會回傳一份把寬度明確寫出的副本。
 
 ### 3.5.0 起的變更
 
-`Pair`、`save_manifest`、`load_manifest` 與 `split_pairs` 現在來自 **kudio**——它們沒有任何降噪專屬的東西。磁碟上的 JSON 不變，這些名稱也仍可從 `kudio_enhance.data` 匯入，但 kudio 的 `split_pairs` 比較嚴格：`val_split + test_split >= 1.0` 會引發錯誤，而不是悄悄把所有資料都交給訓練。
+`Pair`、`save_manifest`、`load_manifest` 與 `split_pairs` 現在來自 **kudio**——它們沒有任何降噪專屬的東西。磁碟上的 JSON 不變，這些名稱也仍可從 `kudioenhance.data` 匯入，但 kudio 的 `split_pairs` 比較嚴格：`val_split + test_split >= 1.0` 會引發錯誤，而不是悄悄把所有資料都交給訓練。
 
 ## 相關專案
 
 - **[kudio](https://pypi.org/project/kudio/)**——底層的音訊工具包。
-- **[KudioStudio](https://github.com/recklight/KudioStudio)**——同一工具包的桌面工作台。與本套件一起安裝時，它的 Enhance 面板可以載入這裡產生的 run 目錄，讓你直接聆聽模型的輸出並互動評分，而不只是看 CSV。
+- **[KudioStudio](https://pypi.org/project/kudiostudio/)**——同一工具包的桌面工作台。與本套件一起安裝時（`pip install "kudiostudio[enhance]"`），它的 Enhance 面板可以載入這裡產生的 run 目錄，讓你直接聆聽模型的輸出並互動評分，而不只是看 CSV。
 
 ## 授權
 
-MIT——見 [LICENSE.txt](LICENSE.txt)。
+MIT——見 [LICENSE.txt](https://github.com/recklight/KudioEnhance/blob/master/LICENSE.txt)。

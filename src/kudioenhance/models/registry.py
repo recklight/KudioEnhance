@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Tuple
 
-from kudio_enhance.config import Config
+from kudioenhance.config import Config
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ class ModelSpec:
 
 
 def _ddae(cfg: Config):
-    from kudio_enhance.models.dense import build_ddae
+    from kudioenhance.models.dense import build_ddae
     bins = cfg.audio.n_bins
     return build_ddae(input_dim=bins * (2 * cfg.model.context + 1),
                       output_dim=bins,
@@ -53,7 +53,7 @@ def _ddae(cfg: Config):
 
 
 def _blstm(cfg: Config):
-    from kudio_enhance.models.recurrent import build_blstm
+    from kudioenhance.models.recurrent import build_blstm
     return build_blstm(n_bins=cfg.audio.n_bins,
                        units=cfg.model.units,
                        dropout=cfg.model.dropout,
@@ -61,7 +61,7 @@ def _blstm(cfg: Config):
 
 
 def _conv_ae(cfg: Config):
-    from kudio_enhance.models.convolutional import build_conv_ae
+    from kudioenhance.models.convolutional import build_conv_ae
     return build_conv_ae(n_bins=cfg.audio.n_bins,
                          filters=cfg.model.units,
                          dropout=cfg.model.dropout,
@@ -69,7 +69,7 @@ def _conv_ae(cfg: Config):
 
 
 def _crn(cfg: Config):
-    from kudio_enhance.models.crn import build_crn
+    from kudioenhance.models.crn import build_crn
     return build_crn(n_bins=cfg.audio.n_bins,
                      channels=cfg.model.units,
                      dropout=cfg.model.dropout,
@@ -77,7 +77,7 @@ def _crn(cfg: Config):
 
 
 def _unet(cfg: Config):
-    from kudio_enhance.models.unet import build_unet
+    from kudioenhance.models.unet import build_unet
     return build_unet(channels=cfg.model.units,
                       dropout=cfg.model.dropout,
                       mask=cfg.model.predicts_mask)
@@ -158,9 +158,9 @@ def build_model(cfg: Config):
     """Build the configured architecture as a freshly initialised
     :class:`torch.nn.Module`.
 
-    The optimiser and the loop belong to :mod:`kudio_enhance.train`, so a
+    The optimiser and the loop belong to :mod:`kudioenhance.train`, so a
     model can be built and inspected without committing to either — and
-    :class:`~kudio_enhance.inference.Enhancer` rebuilds a trained one the same
+    :class:`~kudioenhance.inference.Enhancer` rebuilds a trained one the same
     way before pouring its weights in.
 
     ``model.units`` left unset builds the architecture's default widths; see

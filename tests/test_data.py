@@ -7,7 +7,7 @@ import pathlib
 
 import pytest
 
-from kudio_enhance.data import (
+from kudioenhance.data import (
     Pair,
     build_arrays,
     load_manifest,
@@ -113,7 +113,7 @@ def test_build_arrays_needs_pairs(config):
 def test_history_helpers_round_trip(tmp_path):
     """The curves used to be returned and dropped, which made "did it converge
     or stop early?" unanswerable once the terminal closed."""
-    from kudio_enhance import load_history, save_history, summarise_history
+    from kudioenhance import load_history, save_history, summarise_history
 
     curves = {"loss": [1.0, 0.6, 0.4, 0.45], "val_loss": [1.1, 0.7, 0.5, 0.55]}
     path = save_history(tmp_path / "history.json", curves)
@@ -129,7 +129,7 @@ def test_history_helpers_round_trip(tmp_path):
 
 def test_a_run_that_learned_nothing_says_so():
     """The best epoch being the first one is what that looks like."""
-    from kudio_enhance import summarise_history
+    from kudioenhance import summarise_history
 
     summary = summarise_history({"loss": [0.5, 0.6, 0.7]})
     assert summary["monitor"] == "loss"          # falls back when val is absent
@@ -138,12 +138,12 @@ def test_a_run_that_learned_nothing_says_so():
 
 
 def test_summarising_nothing_does_not_crash():
-    from kudio_enhance import summarise_history
+    from kudioenhance import summarise_history
     assert summarise_history({})["best"] is None
 
 
 def test_save_history_accepts_a_keras_history_object(tmp_path):
-    from kudio_enhance import load_history, save_history
+    from kudioenhance import load_history, save_history
 
     class FakeHistory:
         history = {"loss": [np.float32(0.5), np.float32(0.25)]}
@@ -160,7 +160,7 @@ def test_rooms_are_off_by_default(config):
 
 
 def test_an_impossible_room_is_refused_at_load():
-    from kudio_enhance.config import DataConfig
+    from kudioenhance.config import DataConfig
 
     with pytest.raises(ValueError, match="rt60"):
         DataConfig(rt60=[0.5, 0.0])
@@ -193,7 +193,7 @@ def test_the_room_is_a_fourth_axis(config):
 
 
 def test_a_reverberant_manifest_round_trips(config, tmp_path):
-    from kudio_enhance.data import load_manifest, save_manifest
+    from kudioenhance.data import load_manifest, save_manifest
 
     config.data.rt60 = [0.5]
     pairs = synthesize(config, "exp1")
@@ -205,7 +205,7 @@ def test_a_manifest_written_before_rooms_still_loads(tmp_path):
     """`rt60` is optional and last, so the field is simply absent."""
     import json
 
-    from kudio_enhance.data import load_manifest
+    from kudioenhance.data import load_manifest
     path = tmp_path / "old.json"
     path.write_text(json.dumps([
         {"noisy": "a.wav", "clean": "b.wav", "noise": "white", "snr_db": 0}
@@ -236,7 +236,7 @@ def test_the_reverberant_target_is_off_by_default(config):
 
 
 def test_a_target_without_a_room_is_refused_at_load():
-    from kudio_enhance.config import DataConfig
+    from kudioenhance.config import DataConfig
 
     with pytest.raises(ValueError, match="already is"):
         DataConfig(reverberant_target=True)
@@ -244,7 +244,7 @@ def test_a_target_without_a_room_is_refused_at_load():
 
 
 def test_an_unknown_link_is_refused_at_load_rather_than_an_hour_in():
-    from kudio_enhance.config import DataConfig
+    from kudioenhance.config import DataConfig
 
     with pytest.raises(Exception, match="unknown channel"):
         DataConfig(channel="opus")
@@ -252,7 +252,7 @@ def test_an_unknown_link_is_refused_at_load_rather_than_an_hour_in():
 
 
 def test_training_against_the_room_uses_the_file_the_room_produced(config):
-    from kudio_enhance.data import reference_for
+    from kudioenhance.data import reference_for
 
     config.data.rt60 = [0.5]
     config.data.reverberant_target = True
@@ -271,7 +271,7 @@ def test_training_against_the_room_uses_the_file_the_room_produced(config):
 def test_an_older_manifest_without_targets_still_trains(config):
     """A run made before targets existed has no `target` key, and asking for
     one should fall back rather than fail on the missing file."""
-    from kudio_enhance.data import reference_for
+    from kudioenhance.data import reference_for
 
     config.data.rt60 = [0.5]
     pairs = synthesize(config, "exp1")

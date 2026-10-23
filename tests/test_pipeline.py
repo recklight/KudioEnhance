@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from kudio_enhance import pipeline
-from kudio_enhance.inference import Enhancer
+from kudioenhance import pipeline
+from kudioenhance.inference import Enhancer
 
 # the stages that need no model run without PyTorch; everything that trains
 # asks for the `torch` fixture, and skips cleanly when it is not installed
@@ -38,7 +38,7 @@ def test_train_writes_everything_inference_needs(trained):
 
 
 def test_train_keeps_the_curves(trained):
-    from kudio_enhance import load_history
+    from kudioenhance import load_history
 
     config, name = trained
     history = load_history(config.history_path(name))
@@ -49,7 +49,7 @@ def test_train_keeps_the_curves(trained):
 def test_training_the_same_config_twice_gives_the_same_model(config, torch):
     """The seed reaches the initial weights, not only the shuffle, so a run
     can be repeated from its config alone."""
-    from kudio_enhance.checkpoint import load_checkpoint
+    from kudioenhance.checkpoint import load_checkpoint
 
     config.model.dropout = 0.2
     pipeline.synthesize(config, "exp1")
@@ -137,7 +137,7 @@ def test_the_2d_models_train_load_and_enhance(config, torch, tone,
                                               model_name, target):
     """At their default widths, and on an utterance whose length is neither
     the training window nor a multiple of anything the U-Net halves by."""
-    from kudio_enhance.models import default_units
+    from kudioenhance.models import default_units
 
     config.model.name = model_name
     config.model.target = target
@@ -166,7 +166,7 @@ def test_a_run_records_the_widths_it_was_built_with(config, torch,
 
     import yaml
 
-    from kudio_enhance.models import REGISTRY, default_units
+    from kudioenhance.models import REGISTRY, default_units
 
     config.model.name = "unet"
     config.model.units = None
@@ -196,7 +196,7 @@ def test_a_streamed_run_trains_loads_and_enhances(config, torch, tone,
     """Frame-wise and sequence models, both targets, and the reverberant
     target that `reference_for` picks, all read from disk every epoch. The
     run directory is the same kind an in-memory run leaves."""
-    from kudio_enhance import load_history
+    from kudioenhance import load_history
 
     config.model.name = model_name
     config.model.target = target
@@ -222,7 +222,7 @@ def test_a_streamed_run_repeats_exactly_from_its_seed(config, torch):
     """The files come in a fresh order every epoch and through a shuffle
     buffer, all of it from the training seed, so the run still repeats to
     the last bit — and another seed is another run."""
-    from kudio_enhance.checkpoint import load_checkpoint
+    from kudioenhance.checkpoint import load_checkpoint
 
     config.data.mode = "inc"
     config.model.dropout = 0.2
@@ -246,7 +246,7 @@ def test_streaming_without_a_buffer_says_what_that_costs(config, torch,
 
     config.train.streaming = True
     pipeline.synthesize(config, "exp1")
-    with caplog.at_level(logging.WARNING, logger="kudio_enhance"):
+    with caplog.at_level(logging.WARNING, logger="kudioenhance"):
         pipeline.train(config, "exp1", epochs=1, verbose=0)
     assert any("shuffle_buffer 0" in record.getMessage()
                for record in caplog.records)

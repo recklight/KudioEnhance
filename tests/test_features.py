@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from kudio_enhance.features import (
+from kudioenhance.features import (
     Standardizer,
     frame_windows,
     spectrogram,

@@ -40,8 +40,8 @@ import numpy as np
 
 import kudio
 from kudio import Pair, load_manifest, save_manifest, split_pairs
-from kudio_enhance.config import Config
-from kudio_enhance.features import (
+from kudioenhance.config import Config
+from kudioenhance.features import (
     Standardizer,
     fit_standardizer,
     frame_windows,
@@ -51,7 +51,7 @@ from kudio_enhance.features import (
 )
 
 if TYPE_CHECKING:  # torch is only imported once a dataset is built
-    from kudio_enhance.datasets import InMemoryDataset, StreamingDataset
+    from kudioenhance.datasets import InMemoryDataset, StreamingDataset
 
 log = logging.getLogger(__name__)
 
@@ -200,7 +200,7 @@ def _fitted(standardizer: Optional[Standardizer], fit: bool,
     has never been fitted, and left as it is otherwise.
 
     Fitted in place, a spectrogram at a time, by
-    :func:`~kudio_enhance.features.fit_standardizer` -- held in memory or
+    :func:`~kudioenhance.features.fit_standardizer` -- held in memory or
     streamed, from a list or from a generator that reads the files as it
     goes -- so the two modes normalise with the same statistics to the bit.
     `kudio.Standardizer.fit` on the concatenated frames would be a second
@@ -298,20 +298,20 @@ def build_dataset(pairs: Sequence[Pair], cfg: Config, *, sequence: bool,
     **Streamed**, with ``train.streaming: true``. Nothing is held: every epoch
     reads the files again, in a fresh order, and mixes each one's examples
     through a buffer of ``train.shuffle_buffer`` of them — see
-    :class:`~kudio_enhance.datasets.StreamingDataset`. Fitting the
+    :class:`~kudioenhance.datasets.StreamingDataset`. Fitting the
     Standardizer costs one more pass first, a file at a time. A validation
     set is streamed too, in a fixed order, so nothing held in memory grows
     with the corpus.
 
     Either way the Standardizer is fitted a spectrogram at a time by
-    :func:`~kudio_enhance.features.fit_standardizer`, so the two modes
+    :func:`~kudioenhance.features.fit_standardizer`, so the two modes
     normalise with the same statistics, bit for bit, and so does
     ``build_arrays``.
 
     A *standardizer* passed in is fitted in place when *fit* is set or it has
     never been fitted, and reused as it is otherwise, as with ``build_arrays``.
     """
-    from kudio_enhance.datasets import InMemoryDataset, StreamingDataset
+    from kudioenhance.datasets import InMemoryDataset, StreamingDataset
 
     if not pairs:
         raise ValueError("no pairs to build a dataset from")

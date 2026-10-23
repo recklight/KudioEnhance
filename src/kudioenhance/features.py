@@ -3,7 +3,7 @@
 
 Everything here now comes from `kudio` — this package no longer carries its own
 copy of context stacking, windowing or feature normalisation. What is left is
-the binding between a :class:`~kudio_enhance.config.Config` and the geometry it
+the binding between a :class:`~kudioenhance.config.Config` and the geometry it
 describes, and :func:`fit_standardizer`: kudio's normalisation fitted a chunk
 at a time and summed in float64, which streamed training needs and
 `kudio.Standardizer` cannot do, and which every training set is fitted with.
@@ -16,7 +16,7 @@ from typing import Iterable
 import numpy as np
 from kudio import STFT, Standardizer, frame_windows, stack_context
 
-from kudio_enhance.config import AudioConfig
+from kudioenhance.config import AudioConfig
 
 log = logging.getLogger(__name__)
 

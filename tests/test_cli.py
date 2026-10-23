@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from kudio_enhance.cli import main
+from kudioenhance.cli import main
 
 
 def test_models_lists_every_architecture_with_its_default_widths(capsys):
     """In the form the config takes, so a line can be pasted into one."""
-    from kudio_enhance.models import REGISTRY, default_units
+    from kudioenhance.models import REGISTRY, default_units
 
     assert main(["models"]) == 0
     lines = capsys.readouterr().out.splitlines()
@@ -20,7 +20,7 @@ def test_models_lists_every_architecture_with_its_default_widths(capsys):
 
 
 def test_init_writes_a_loadable_config(tmp_path, capsys):
-    from kudio_enhance import Config
+    from kudioenhance import Config
 
     path = tmp_path / "config.yaml"
     assert main(["init", str(path)]) == 0
@@ -32,15 +32,15 @@ def test_the_starter_config_leaves_the_widths_to_the_architecture(tmp_path):
     """Switching ``model.name`` in the starter file is enough to get a
     sensible network: a 1024-wide stack written into it would follow the
     switch to a 2-D model, and be far too wide there."""
-    from kudio_enhance import Config
-    from kudio_enhance.models import resolve_units
+    from kudioenhance import Config
+    from kudioenhance.models import resolve_units
 
     path = tmp_path / "config.yaml"
     main(["init", str(path)])
     text = path.read_text(encoding="utf-8")
     # yaml cannot carry a comment through a dump; the header says what the
     # one unexplained value means
-    assert text.startswith("#") and "kudio-enhance models" in text
+    assert text.startswith("#") and "kudioenhance models" in text
 
     cfg = Config.from_yaml(path)
     assert cfg.model.units is None

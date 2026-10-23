@@ -1,10 +1,11 @@
-# kudio-enhance
+# KudioEnhance
 
-**English** | [繁體中文](README.zh-TW.md)
+**English** | [繁體中文](https://github.com/recklight/KudioEnhance/blob/master/README.zh-TW.md)
 
+[![PyPI](https://img.shields.io/pypi/v/kudioenhance.svg)](https://pypi.org/project/kudioenhance/)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.4.1%2B-ee4c2c.svg)](https://pytorch.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.txt)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/recklight/KudioEnhance/blob/master/LICENSE.txt)
 [![kudio](https://img.shields.io/pypi/v/kudio.svg?label=kudio)](https://pypi.org/project/kudio/)
 
 **Train and run learned speech-enhancement (denoising) models**, built on the
@@ -12,9 +13,9 @@
 
 Three stages, one config file:
 
-[![KudioEnhance workflow](docs/images/workflow.png)](https://raw.githack.com/recklight/KudioEnhance/master/docs/workflow.html?theme=dark)
+[![KudioEnhance workflow](https://raw.githubusercontent.com/recklight/KudioEnhance/master/docs/images/workflow.png)](https://raw.githack.com/recklight/KudioEnhance/master/docs/workflow.html?theme=dark)
 
-The figure is a link to an interactive version — [open it online](https://raw.githack.com/recklight/KudioEnhance/master/docs/workflow.html?theme=dark), or open [`docs/workflow.html`](docs/workflow.html) from a checkout. You can zoom, search for a node, or trace the path between two of them, and most boxes carry a link to the lines of source they were drawn from, at the commit they were checked against.
+The figure is a link to an interactive version — [open it online](https://raw.githack.com/recklight/KudioEnhance/master/docs/workflow.html?theme=dark), or open `docs/workflow.html` from a checkout. You can zoom, search for a node, or trace the path between two of them, and most boxes carry a link to the lines of source they were drawn from, at the commit they were checked against.
 
 Each stage reads what the one before it wrote, so you can re-train without
 re-mixing and re-evaluate without re-training. `run` does all three in order.
@@ -26,13 +27,11 @@ any other kudio-based tool produces.
 
 ## Install
 
-Not on PyPI. Clone it and install from the checkout:
-
 ```bash
-git clone https://github.com/recklight/KudioEnhance.git
-cd KudioEnhance
-pip install -e ".[dev]"
+pip install kudioenhance
 ```
+
+The command is `kudioenhance` and the package `import kudioenhance`.
 
 Needs **Python 3.9+** and **PyTorch ≥ 2.4.1**. The models are plain
 `torch.nn` modules, trained by a loop in this package — no Keras, no
@@ -46,7 +45,7 @@ will keep it when it installs this package:
 
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install -e ".[dev]"
+pip install kudioenhance
 ```
 
 The Windows and macOS wheels on PyPI carry no CUDA, so they stay small.
@@ -55,7 +54,7 @@ Training takes an NVIDIA GPU whenever torch can see one (`device: auto` in the
 GPUs are not used: torch can drive them through `mps`, but this package does
 not ask it to, and on a Mac training runs on the CPU.
 
-STOI and SDR are optional: `pip install -e ".[eval]"`. **PESQ is a
+STOI and SDR are optional: `pip install "kudioenhance[eval]"`. **PESQ is a
 separate extra**, `pip install "kudio[pesq]"`, because it builds from source
 — a C compiler, and the MSVC Build Tools on Windows — so it is deliberately
 left out of `[eval]` and `[all]`, which would otherwise stop installing.
@@ -68,8 +67,8 @@ quote. They are different scales, not different roundings: raw 2.03 is about
 ## Quick start
 
 ```bash
-kudio-enhance init config.yaml        # starter config
-kudio-enhance run -c config.yaml -n exp1
+kudioenhance init config.yaml        # starter config
+kudioenhance run -c config.yaml -n exp1
 ```
 
 That mixes the dataset, trains, and prints the before/after scores:
@@ -84,8 +83,8 @@ report -> runs/exp1/report.csv
 Then denoise anything with the trained run:
 
 ```bash
-kudio-enhance denoise runs/exp1 noisy.wav enhanced.wav
-kudio-enhance denoise runs/exp1 noisy/ clean/ --recursive --report
+kudioenhance denoise runs/exp1 noisy.wav enhanced.wav
+kudioenhance denoise runs/exp1 noisy/ clean/ --recursive --report
 ```
 
 The folder form loads the model **once** for the whole tree, mirrors the input's
@@ -94,7 +93,7 @@ directory structure, and with `--report` says how far the noise floor moved.
 And afterwards, whether it actually learned anything:
 
 ```bash
-kudio-enhance curves -c config.yaml -n exp1
+kudioenhance curves -c config.yaml -n exp1
 ```
 
 ```
@@ -113,9 +112,9 @@ what "this did not learn" looks like.
 ### Stage by stage
 
 ```bash
-kudio-enhance synth    -c config.yaml -n exp1   # mix + freeze the splits
-kudio-enhance train    -c config.yaml -n exp1   # fit (--epochs 1 to smoke-test)
-kudio-enhance evaluate -c config.yaml -n exp1   # score (--full adds PESQ/STOI)
+kudioenhance synth    -c config.yaml -n exp1   # mix + freeze the splits
+kudioenhance train    -c config.yaml -n exp1   # fit (--epochs 1 to smoke-test)
+kudioenhance evaluate -c config.yaml -n exp1   # score (--full adds PESQ/STOI)
 ```
 
 Each stage reads what the previous one wrote, so you can re-train without
@@ -170,7 +169,7 @@ offending key — it does not silently fall back to a default three stages later
 ## Models
 
 ```bash
-kudio-enhance models
+kudioenhance models
 ```
 
 ```
@@ -384,12 +383,12 @@ batches.
   as an in-memory one does. It is a different run from the in-memory one,
   though: the same examples, in a different order.
 
-`kudio_enhance.data.build_dataset` is what both modes go through, and
+`kudioenhance.data.build_dataset` is what both modes go through, and
 `train.fit` takes what it returns in place of arrays:
 
 ```python
-from kudio_enhance.data import build_dataset
-from kudio_enhance.train import fit
+from kudioenhance.data import build_dataset
+from kudioenhance.train import fit
 
 train_set, std = build_dataset(train_pairs, cfg, sequence=False, fit=True)
 history = fit(model, train_set, None, cfg, "runs/exp1/ddae.pt")
@@ -401,7 +400,7 @@ them.
 ## Python API
 
 ```python
-from kudio_enhance import Config, Enhancer, pipeline
+from kudioenhance import Config, Enhancer, pipeline
 
 cfg = Config.from_yaml("config.yaml")
 summary = pipeline.run(cfg, "exp1")          # synth + train + evaluate
@@ -460,7 +459,7 @@ it repeats closely rather than exactly.
 docs/
 ├── images/workflow.png  # the README figure
 └── workflow.html        # the same diagram, interactive
-src/kudio_enhance/
+src/kudioenhance/
 ├── config.py        # typed dataclasses, YAML in/out, run paths
 ├── data.py          # mixing, manifests, splits, training sets
 ├── datasets.py      # the training set as torch sees it: held or streamed
@@ -477,7 +476,7 @@ src/kudio_enhance/
 ├── inference.py     # Enhancer
 ├── evaluate.py      # per-file scoring + CSV report
 ├── pipeline.py      # the three stages
-└── cli.py           # kudio-enhance
+└── cli.py           # kudioenhance
 ```
 
 Model builders return plain `torch.nn.Module`s; `train.py` owns the
@@ -486,11 +485,16 @@ committing to an optimisation setup.
 
 ## Tests
 
+From a checkout, with the development extras:
+
 ```bash
+git clone https://github.com/recklight/KudioEnhance.git
+cd KudioEnhance
+pip install -e ".[dev]"
 pytest -q
 ```
 
-228 tests. The suite builds a tiny synthetic corpus in a temp directory and runs
+229 tests. The suite builds a tiny synthetic corpus in a temp directory and runs
 the whole pipeline — mix, train one epoch, enhance, score — in seconds. Tests
 that need PyTorch ask for it by name and skip cleanly when it is not
 installed; the other 105 still run.
@@ -538,7 +542,7 @@ reporting a missing file. The config and the frozen splits in it can be
 reused as they are:
 
 ```bash
-kudio-enhance train -c runs/exp1/config.yaml -n exp1
+kudioenhance train -c runs/exp1/config.yaml -n exp1
 ```
 
 `fit` returns the curves as a plain dict instead of a Keras `History`, and
@@ -546,7 +550,7 @@ kudio-enhance train -c runs/exp1/config.yaml -n exp1
 `fit(compile_model(...))` still run. `build_callbacks` is gone, and importing
 it fails: `fit` does the checkpointing, the early stopping and the
 learning-rate halving itself, so code that built Keras callbacks for
-`model.fit` calls `kudio_enhance.train.fit` instead.
+`model.fit` calls `kudioenhance.train.fit` instead.
 
 `train.batch_size` has to be 2 or more for `ddae`, and training says so before
 it reads any audio; a `ddae` training set of a single frame is refused too.
@@ -571,25 +575,26 @@ to `null`, meaning the architecture's own widths. A config that sets `units`
 builds what it did, and so does one that left it out: `ddae`, `blstm` and
 `conv_ae` still default to `[1024, 1024, 1024]`. Code that reads
 `cfg.model.units` directly can now find `None` there;
-`kudio_enhance.models.resolve_units(cfg)` returns a copy with the widths
+`kudioenhance.models.resolve_units(cfg)` returns a copy with the widths
 spelled out.
 
 ### Since 3.5.0
 
 `Pair`, `save_manifest`, `load_manifest` and `split_pairs` now come from
 **kudio** — nothing in them was specific to denoising. The JSON on disk is
-unchanged and the names are still importable from `kudio_enhance.data`, but
+unchanged and the names are still importable from `kudioenhance.data`, but
 kudio's `split_pairs` is stricter: `val_split + test_split >= 1.0` raises
 instead of quietly handing everything to training.
 
 ## Related
 
 - **[kudio](https://pypi.org/project/kudio/)** — the audio toolkit underneath.
-- **[KudioStudio](https://github.com/recklight/KudioStudio)** — desktop workbench
-  for the same toolkit. With this package installed alongside it, its Enhance
-  panel loads the run directories produced here, so you can listen to a model's
-  output and score it interactively instead of only reading the CSV.
+- **[KudioStudio](https://pypi.org/project/kudiostudio/)** — desktop workbench
+  for the same toolkit. With this package installed alongside it
+  (`pip install "kudiostudio[enhance]"`), its Enhance panel loads the run
+  directories produced here, so you can listen to a model's output and score
+  it interactively instead of only reading the CSV.
 
 ## Licence
 
-MIT — see [LICENSE.txt](LICENSE.txt).
+MIT — see [LICENSE.txt](https://github.com/recklight/KudioEnhance/blob/master/LICENSE.txt).

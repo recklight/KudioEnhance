@@ -14,13 +14,13 @@ import numpy as np
 import pytest
 
 import kudio
-from kudio_enhance.data import (
+from kudioenhance.data import (
     build_arrays,
     build_dataset,
     pair_examples,
     synthesize,
 )
-from kudio_enhance.features import fit_standardizer
+from kudioenhance.features import fit_standardizer
 
 
 @pytest.fixture
@@ -230,7 +230,7 @@ def test_a_streamed_pass_in_order_gives_build_arrays_rows(
     """Stream the files in manifest order and the rows are the stacked
     matrix's, cut into batches where slicing it would cut them, so streamed
     validation scores exactly what the held set scores."""
-    from kudio_enhance.models import is_sequence
+    from kudioenhance.models import is_sequence
 
     config.model.name = name
     config.model.target = target
@@ -277,7 +277,7 @@ def test_every_epoch_reshuffles_and_the_seed_repeats_them(config, pairs,
     come from the one generator: the same seed gives the same epochs, file
     for file and batch for batch, and the next epoch from the same
     generator reads the files in a different order."""
-    import kudio_enhance.datasets as datasets
+    import kudioenhance.datasets as datasets
 
     config.train.streaming = True
     config.train.shuffle_buffer = 50
@@ -363,7 +363,7 @@ def test_a_streamed_epoch_never_ends_on_a_lone_example(config, pairs, torch):
 def test_an_empty_file_is_reported_once_however_many_epochs(
         config, pairs, torch, monkeypatch, caplog):
     """Reported every epoch it would bury everything else in the log."""
-    import kudio_enhance.data as data
+    import kudioenhance.data as data
 
     config.train.streaming = True
     streamed, _ = build_dataset(pairs, config, sequence=False, fit=True)
@@ -375,7 +375,7 @@ def test_an_empty_file_is_reported_once_however_many_epochs(
     monkeypatch.setattr(data, "_spectra", spectra)
 
     generator = torch.Generator().manual_seed(0)
-    with caplog.at_level(logging.WARNING, logger="kudio_enhance"):
+    with caplog.at_level(logging.WARNING, logger="kudioenhance"):
         for _ in range(3):
             list(streamed.shuffled_batches(32, generator))
         list(streamed.ordered_batches(32))
@@ -404,9 +404,9 @@ def test_a_streamed_set_iterates_like_any_torch_iterable_dataset(
 
 
 def test_a_streamed_set_needs_pairs_and_fitted_statistics(config, torch):
-    from kudio_enhance.data import Pair
-    from kudio_enhance.datasets import StreamingDataset
-    from kudio_enhance.features import Standardizer
+    from kudioenhance.data import Pair
+    from kudioenhance.datasets import StreamingDataset
+    from kudioenhance.features import Standardizer
 
     config.train.streaming = True
     with pytest.raises(ValueError, match="no pairs"):
