@@ -350,12 +350,42 @@ does not go down it — asking a model to reproduce G.711 is not denoising.
 Point `clean_dir` and `noise_dir` at any two folders. Public sets that work
 well out of the box:
 
-- **[VoiceBank-DEMAND](https://datashare.ed.ac.uk/handle/10283/2791)** — the standard speech-enhancement benchmark (comes pre-mixed; use its clean/noisy folders directly and skip the synth stage).
+- **[VoiceBank-DEMAND](https://datashare.ed.ac.uk/handle/10283/2791)** — the standard speech-enhancement benchmark. It comes mixed already, so it skips the synth stage; see below.
 - **[LibriSpeech](https://www.openslr.org/12/)** + **[DEMAND](https://zenodo.org/record/1227121)** or **[MUSAN](https://www.openslr.org/17/)** — mix them yourself at the SNRs you care about.
 - **[ESC-50](https://github.com/karolpiczak/ESC-50)** — environmental noise, handy for non-speech targets.
 
 Set a `seed` and the mixture is reproducible: the same noise offsets, the same
 pairings, the same splits.
+
+### VoiceBank-DEMAND
+
+Download the 28-speaker set from the DataShare record by hand (the clean and
+noisy zips for the training and test sets, and `logfiles.zip`), then:
+
+```bash
+kudioenhance prepare path/to/zips data/vbd16k
+```
+
+`prepare` reads the zips, or the folders they unpack to, and never downloads
+anything. It resamples the 48 kHz files to 16 kHz (`--sr` for another rate)
+with soxr's HQ filter and writes them as 32-bit float: the noisy files come
+close to full scale, and in 16 bits the resampler's overshoot would clip, so
+`noisy - clean` would stop being the noise the `irm` target is built from.
+The corpus has no validation set, and picking a checkpoint on the test set
+would make the test score meaningless, so two training speakers, p226 and
+p287, are held out whole for validation (`--val-speakers` to choose others).
+They are the two SpeechBrain's VoiceBank recipe holds out.
+
+Into `data/vbd16k` go `train/`, `val/` and `test/`, the three manifests with
+each pair's noise and SNR from the corpus's log files, `utterances.csv` with
+the SHA-256 of every file, `speakers.csv`, and `prepare.json`, which records
+the source zips with their SHA-256, the resampler and the library versions.
+Then point the config at the folder and skip `synth`:
+
+```yaml
+data:
+  prepared: data/vbd16k
+```
 
 ## Training data: in memory or streamed
 
@@ -499,6 +529,7 @@ docs/
 src/kudioenhance/
 ├── config.py        # typed dataclasses, YAML in/out, run paths
 ├── data.py          # mixing, manifests, splits, training sets
+├── vbd.py           # VoiceBank-DEMAND: resampling, the validation split
 ├── datasets.py      # the training set as torch sees it: held or streamed
 ├── features.py      # spectrogram / context stacking / windows / Standardizer
 ├── models/
@@ -531,10 +562,10 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-229 tests. The suite builds a tiny synthetic corpus in a temp directory and runs
+273 tests. The suite builds a tiny synthetic corpus in a temp directory and runs
 the whole pipeline — mix, train one epoch, enhance, score — in seconds. Tests
 that need PyTorch ask for it by name and skip cleanly when it is not
-installed; the other 105 still run.
+installed; the other 147 still run.
 
 The mask tests check the *formula*, not just that it runs: all-speech gives 1,
 all-noise gives 0, equal power gives 1/√2, and an oracle mask has to actually

@@ -19,6 +19,7 @@ from kudioenhance.data import (
     Pair,
     build_dataset,
     load_manifest,
+    load_prepared,
     save_manifest,
     split_pairs,
     synthesize as synthesize_data,
@@ -42,7 +43,15 @@ def _split_paths(cfg: Config, name: str) -> Dict[str, Path]:
 # ------------------------------------------------------------------ stage 1
 
 def synthesize(cfg: Config, name: str) -> List[Pair]:
-    """Mix the dataset and freeze the train/val/test split."""
+    """Mix the dataset and freeze the train/val/test split.
+
+    :raises ValueError: for a config that reads a prepared corpus
+        (``data.prepared``), which comes mixed and split already.
+    """
+    if cfg.data.prepared:
+        raise ValueError(
+            f"data.prepared is set: {cfg.data.prepared} is mixed and split "
+            f"already, so there is nothing to synthesize; go straight to train")
     pairs = synthesize_data(cfg, name)
     train_pairs, val_pairs, test_pairs = split_pairs(
         pairs, cfg.data.val_split, cfg.data.test_split, cfg.data.seed)
@@ -57,6 +66,8 @@ def synthesize(cfg: Config, name: str) -> List[Pair]:
 
 
 def _load_split(cfg: Config, name: str, part: str) -> List[Pair]:
+    if cfg.data.prepared:
+        return load_prepared(cfg.data.prepared, part)
     path = _split_paths(cfg, name)[part]
     if not path.is_file():
         raise FileNotFoundError(
@@ -185,8 +196,11 @@ def run(cfg: Config, name: str, *, epochs: Optional[int] = None,
         pesq_scale: str = "lqo", metrics: Optional[Sequence[str]] = None,
         speakers=VCTK_SPEAKER, dnsmos_dir=None, jobs: int = 1
         ) -> Dict[str, float]:
-    """synthesize -> train -> evaluate, returning the summary scores."""
-    synthesize(cfg, name)
+    """synthesize -> train -> evaluate, returning the summary scores. A
+    prepared corpus (``data.prepared``) is split already, and goes straight
+    to training."""
+    if not cfg.data.prepared:
+        synthesize(cfg, name)
     train(cfg, name, epochs=epochs, verbose=verbose)
     _, summary = evaluate(cfg, name, optional=optional, pesq_mode=pesq_mode,
                           pesq_scale=pesq_scale, metrics=metrics,

@@ -119,6 +119,12 @@ class DataConfig:
     val_split: float = 0.1
     test_split: float = 0.1
     max_files: Optional[int] = None
+    #: A folder ``kudioenhance prepare`` wrote: a corpus that comes already
+    #: mixed, with its splits fixed, VoiceBank-DEMAND's. Set, the splits are
+    #: read from its ``train.json``, ``val.json`` and ``test.json``, there is
+    #: nothing to synthesize, and the mixing settings above and the two
+    #: split fractions are not used.
+    prepared: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.mode not in ("regular", "reg", "inc", "increment"):

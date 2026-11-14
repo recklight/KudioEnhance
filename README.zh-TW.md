@@ -246,11 +246,28 @@ data:
 
 把 `clean_dir` 和 `noise_dir` 指向任意兩個資料夾即可。可直接使用的公開資料集：
 
-- **[VoiceBank-DEMAND](https://datashare.ed.ac.uk/handle/10283/2791)**——標準的語音增強基準（已預先混好；直接使用它的 clean/noisy 資料夾並略過 synth 階段）。
+- **[VoiceBank-DEMAND](https://datashare.ed.ac.uk/handle/10283/2791)**——標準的語音增強基準。它本身就混好了，所以不走 synth 階段，做法見下方。
 - **[LibriSpeech](https://www.openslr.org/12/)** + **[DEMAND](https://zenodo.org/record/1227121)** 或 **[MUSAN](https://www.openslr.org/17/)**——以你關心的 SNR 自行混音。
 - **[ESC-50](https://github.com/karolpiczak/ESC-50)**——環境噪音，適合非語音的目標。
 
 設定 `seed` 後混音即可重現：相同的噪音起點、相同的配對、相同的切分。
+
+### VoiceBank-DEMAND
+
+28 位說話者的版本要自己從 DataShare 紀錄下載（訓練集和測試集的 clean、noisy zip，加上 `logfiles.zip`），然後：
+
+```bash
+kudioenhance prepare path/to/zips data/vbd16k
+```
+
+`prepare` 讀 zip 或解開後的資料夾，不會自己下載。48 kHz 的檔案用 soxr 的 HQ 濾波器重抽樣到 16 kHz（其他取樣率用 `--sr`），存成 32 位元浮點：noisy 檔很接近滿刻度，存 16 位元的話重抽樣的過衝會被削掉，`noisy - clean` 就不再是 `irm` 目標拿來當噪音的那個訊號。這個語料沒有驗證集，拿測試集挑 checkpoint 會讓測試分數失去意義，所以從訓練說話者整位留出 p226 和 p287 當驗證集（要換人用 `--val-speakers`），和 SpeechBrain 的 VoiceBank 配方留的是同兩位。
+
+`data/vbd16k` 底下會有 `train/`、`val/`、`test/`，三份 manifest（每一對都帶語料 log 檔裡的噪音種類和 SNR），列出每個檔案 SHA-256 的 `utterances.csv`，`speakers.csv`，以及記下來源 zip 和其 SHA-256、重抽樣器與套件版本的 `prepare.json`。設定檔指向這個資料夾，跳過 `synth`：
+
+```yaml
+data:
+  prepared: data/vbd16k
+```
 
 ## 訓練資料：放在記憶體或串流
 
@@ -339,6 +356,7 @@ docs/
 src/kudioenhance/
 ├── config.py        # 有型別的 dataclass、YAML 讀寫、run 路徑
 ├── data.py          # 混音、manifest、切分、訓練集
+├── vbd.py           # VoiceBank-DEMAND：重抽樣、驗證集切分
 ├── datasets.py      # torch 看到的訓練集：常駐或串流
 ├── features.py      # 頻譜 / 上下文堆疊 / 視窗 / Standardizer
 ├── models/
@@ -369,7 +387,7 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-共 229 個測試。測試套件會在暫存目錄建立一個很小的合成語料，並在幾秒內跑完整個流程——混音、訓練一個 epoch、增強、評分。需要 PyTorch 的測試會明確要求它，沒安裝時會乾淨地跳過；其餘 105 個仍會執行。
+共 273 個測試。測試套件會在暫存目錄建立一個很小的合成語料，並在幾秒內跑完整個流程——混音、訓練一個 epoch、增強、評分。需要 PyTorch 的測試會明確要求它，沒安裝時會乾淨地跳過；其餘 147 個仍會執行。
 
 遮罩測試檢查的是*公式*，而不只是能不能跑：全是語音時為 1、全是噪音時為 0、功率相等時為 1/√2，而 oracle 遮罩必須真的提升 SI-SDR。這些不成立，就代表目標是錯的，不管損失曲線怎麼說。架構測試也一樣：改動 *t* 之後的任何一幀，`crn` 到 *t* 為止的輸出必須逐位元不變；`unet` 的則必須改變，因為它的說明寫著它是非因果的。訓練集也是：記憶體模式必須逐位元交回堆疊矩陣的列，依 manifest 順序的串流掃描也是，而一個打亂的 epoch 必須讓每個樣本恰好出現一次，並且在相同 seed 下得到相同順序。兩種模式必須以逐位元相同的統計量做正規化。
 

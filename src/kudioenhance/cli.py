@@ -3,6 +3,7 @@
 
     kudioenhance models                          # list architectures
     kudioenhance init config.yaml                # write a starter config
+    kudioenhance prepare zips/ data/vbd16k       # VoiceBank-DEMAND at 16 kHz
     kudioenhance synth    -c config.yaml -n exp1 # stage 1: mix the dataset
     kudioenhance train    -c config.yaml -n exp1 # stage 2: fit the model
     kudioenhance evaluate -c config.yaml -n exp1 # stage 3: score the test split
@@ -48,6 +49,23 @@ def _parser() -> argparse.ArgumentParser:
 
     init = sub.add_parser("init", help="write a starter config file")
     init.add_argument("path", nargs="?", default="config.yaml")
+
+    prep = sub.add_parser(
+        "prepare",
+        help="bring VoiceBank-DEMAND to the model's rate, with a validation "
+             "split, manifests and checksums")
+    prep.add_argument("source",
+                      help="folder with the corpus's zips, or the folders they "
+                           "unpack to; nothing is downloaded")
+    prep.add_argument("out", help="where the prepared corpus goes; point "
+                                  "data.prepared at it")
+    prep.add_argument("--sr", type=int, default=16000,
+                      help="rate to resample to (default 16000)")
+    prep.add_argument("--val-speakers",
+                      help="comma-separated training speakers held out for "
+                           "validation (default p226,p287)")
+    prep.add_argument("--overwrite", action="store_true",
+                      help="replace a corpus prepared into OUT before")
 
     for stage, help_text in (("synth", "mix the dataset and freeze the splits"),
                              ("train", "fit the model"),
@@ -142,6 +160,23 @@ def main(argv=None) -> int:
         print(f"wrote {path}")
         return 0
 
+    if args.command == "prepare":
+        from kudioenhance.vbd import VALIDATION_SPEAKERS, prepare
+        validation = (VALIDATION_SPEAKERS if args.val_speakers is None
+                      else [s.strip() for s in args.val_speakers.split(",")
+                            if s.strip()])
+        try:
+            summary = prepare(args.source, args.out, sr=args.sr,
+                              validation=validation, overwrite=args.overwrite)
+        except FileExistsError as e:
+            print(e, file=sys.stderr)
+            return 1
+        counts = summary["utterances"]
+        print(f"{counts['train']} train / {counts['val']} val / "
+              f"{counts['test']} test pair(s) at {summary['sr']} Hz -> {args.out}")
+        print(f"validation speakers: {', '.join(summary['validation_speakers'])}")
+        return 0
+
     if args.command == "denoise":
         from kudioenhance.inference import Enhancer
         enhancer = Enhancer.load(args.run_dir)
@@ -185,6 +220,11 @@ def main(argv=None) -> int:
         return 0
 
     if args.command == "synth":
+        if cfg.data.prepared:
+            print(f"data.prepared is set: {cfg.data.prepared} is mixed and split "
+                  f"already, so there is nothing to synthesize; run train",
+                  file=sys.stderr)
+            return 1
         pairs = pipeline.synthesize(cfg, args.name)
         print(f"{len(pairs)} pair(s) synthesized")
         return 0

@@ -57,7 +57,7 @@ log = logging.getLogger(__name__)
 
 __all__ = ["Pair", "synthesize", "save_manifest", "load_manifest",
            "split_pairs", "build_dataset", "build_arrays", "pair_examples",
-           "reference_for"]
+           "reference_for", "load_prepared"]
 
 
 # --------------------------------------------------------------------- mixing
@@ -109,6 +109,32 @@ def synthesize(cfg: Config, name: str) -> List[Pair]:
                  "so the model is being asked to undo that too",
                  syx.channel_tag)
     return pairs
+
+
+def load_prepared(folder, part: str) -> List[Pair]:
+    """Split *part* of a corpus ``kudioenhance prepare`` wrote to *folder*.
+
+    The manifest's paths are relative to *folder*, so the folder can be moved
+    or copied to another machine; they come back joined to it. An absolute
+    path in the manifest is kept as it is.
+
+    :raises FileNotFoundError: for a folder without ``<part>.json``.
+    """
+    folder = Path(folder)
+    path = folder / f"{part}.json"
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"{path} not found; is {folder} a folder `kudioenhance prepare` wrote?")
+
+    def resolved(value: Optional[str]) -> Optional[str]:
+        if not value or Path(value).is_absolute():
+            return value
+        return (folder / value).as_posix()
+
+    return [Pair(noisy=resolved(p.noisy), clean=resolved(p.clean), noise=p.noise,
+                 snr_db=p.snr_db, rt60=p.rt60, channel=p.channel,
+                 target=resolved(p.target))
+            for p in load_manifest(path)]
 
 
 def reference_for(pair: Pair, cfg: Config) -> str:
