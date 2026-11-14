@@ -130,6 +130,22 @@ def test_report_csv_ends_with_a_mean_row(trained):
     assert rows[-1][0] == "MEAN"
 
 
+def test_evaluate_leaves_the_enhanced_files_and_the_table(trained):
+    import json
+
+    config, name = trained
+    rows, _ = pipeline.evaluate(config, name)
+
+    assert len(list(config.enhanced_dir(name).rglob("*.wav"))) == len(rows)
+    for suffix in (".md", ".tex", ".json", ".bib"):
+        assert config.results_path(name, suffix).is_file()
+    data = json.loads(config.results_path(name, ".json").read_text(encoding="utf-8"))
+    assert data["items"] == len(rows) and data["baseline"] is True
+    # the synthetic clean files are utt0.wav and so on: no speaker in them
+    assert data["resampled"] == "sentences"
+    assert data["note"] in config.results_path(name).read_text(encoding="utf-8")
+
+
 @pytest.mark.parametrize("model_name, target", [
     ("crn", "spectrum"), ("crn", "irm"), ("unet", "spectrum"), ("unet", "irm"),
 ])

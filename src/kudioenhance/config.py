@@ -340,6 +340,15 @@ class Config:
     def report_path(self, name: str) -> Path:
         return self.run_dir(name) / "report.csv"
 
+    def enhanced_dir(self, name: str) -> Path:
+        """Where ``evaluate`` writes the enhanced test files it scores."""
+        return self.run_dir(name) / "enhanced"
+
+    def results_path(self, name: str, suffix: str = ".md") -> Path:
+        """The results table, as ``.md``, ``.tex`` or ``.json``, and its
+        BibTeX as ``.bib``."""
+        return self.run_dir(name) / f"results{suffix}"
+
     def history_path(self, name: str) -> Path:
         """Where the training curves land. See :func:`kudioenhance.save_history`."""
         return self.run_dir(name) / "history.json"

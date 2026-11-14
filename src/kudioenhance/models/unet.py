@@ -2,13 +2,17 @@
 """2-D U-Net over the spectrogram — time and frequency treated alike.
 
 After Ronneberger, Fischer & Brox (2015), "U-Net: convolutional networks for
-biomedical image segmentation", applied to a spectrogram as if it were an
-image. Each level of the contracting path is two 3x3 convolutions and then a
-halving of both axes; the expanding path doubles them back, and every level
-on the way up is handed the feature maps from the same level on the way down,
-so the fine time-frequency detail the pooling discarded is there to be
-reused. Speech is local structure at several scales at once — a harmonic, a
-formant, a syllable — which is the case U-Nets were built for.
+biomedical image segmentation", MICCAI 2015, LNCS 9351, 234-241, applied to
+a spectrogram as if it were an image. Each level of the contracting path is
+two 3x3 convolutions and then a halving of both axes; the expanding path
+doubles them back, and every level on the way up is handed the feature maps
+from the same level on the way down, so the fine time-frequency detail the
+pooling discarded is there to be reused. Speech is local structure at
+several scales at once — a harmonic, a formant, a syllable — which is the
+case U-Nets were built for. A U-Net over the magnitude spectrogram with a
+mask out is A. Jansson et al., "Singing voice separation with deep U-Net
+convolutional networks", ISMIR 2017, 745-751; theirs halves with strided
+5x5 convolutions rather than pooling.
 
 It is **not causal**. A 3x3 convolution reaches one frame into the future,
 and every halving doubles that reach, so the output for a frame depends on

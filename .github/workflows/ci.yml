@@ -64,7 +64,7 @@ jobs:
       - name: Install everything except torch
         run: |
           python -m pip install --upgrade pip
-          pip install "kudio[eval]>=3.7.1" numpy PyYAML pytest
+          pip install "kudio[eval]>=4.0.0" numpy PyYAML pytest
           pip install -e . --no-deps
       - name: The package imports without torch
         run: python -c "import kudioenhance, sys; assert 'torch' not in sys.modules"

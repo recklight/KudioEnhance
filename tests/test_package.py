@@ -25,6 +25,22 @@ def _fresh_python(code: str, cwd: Path) -> str:
     return result.stdout
 
 
+def test_citation_cff_names_the_version_the_package_reports():
+    """GitHub's "Cite this repository" reads CITATION.cff; a version left
+    behind there would be cited for numbers a later release produced."""
+    import datetime
+
+    import yaml
+
+    cff = yaml.safe_load((SRC.parent / "CITATION.cff").read_text(encoding="utf-8"))
+    assert cff["version"] == kudioenhance.__version__
+    assert cff["authors"] == [{"alias": kudioenhance.__author__}]
+    released = cff["date-released"]
+    if isinstance(released, str):
+        released = datetime.date.fromisoformat(released)
+    assert isinstance(released, datetime.date)
+
+
 def test_importing_the_package_does_not_import_torch(tmp_path):
     """Configs, features and the dataset tooling are useful on a machine
     with no deep-learning framework at all, and cheap to import on one that

@@ -42,7 +42,7 @@ PyPI 上的 Windows 與 macOS wheel 不含 CUDA，所以體積很小。只要 to
 
 STOI 與 SDR 是選用的：`pip install "kudioenhance[eval]"`。**PESQ 是另一個獨立的 extra**，`pip install "kudio[pesq]"`，因為它要從原始碼編譯——需要 C 編譯器，在 Windows 上是 MSVC Build Tools——所以刻意不放進 `[eval]` 和 `[all]`，否則它們會裝不起來。
 
-PESQ 有兩種尺度。`evaluate` 預設回報 MOS-LQO；加上 `--pesq-scale raw` 則是多數語音增強論文引用的窄頻 P.862 分數。它們是不同的尺度，不是四捨五入的差別：raw 2.03 大約等於 MOS-LQO 1.65。
+PESQ 有兩種尺度。`evaluate` 預設回報 MOS-LQO；加上 `--pesq-scale raw` 則是經過 P.862.1 映射之前的窄頻 P.862 分數。它們是不同的尺度，不是四捨五入的差別：raw 2.03 大約等於 MOS-LQO 1.66。論文兩種都有人用，拿自己的數字去比之前，先確認對方用的是哪一種。
 
 ## 快速開始
 
@@ -58,6 +58,7 @@ si_sdr      -4.812 ->    6.933  (+11.745)
 snr         -4.998 ->    5.221  (+10.219)
 seg_snr     -6.114 ->    1.870  (+7.984)
 report -> runs/exp1/report.csv
+table  -> runs/exp1/results.md (.tex, .json, .bib beside it)
 ```
 
 接著用訓練好的 run 對任何音訊降噪：
@@ -88,10 +89,18 @@ kudioenhance curves -c config.yaml -n exp1
 ```bash
 kudioenhance synth    -c config.yaml -n exp1   # 混音並固定資料切分
 kudioenhance train    -c config.yaml -n exp1   # 訓練（--epochs 1 可做冒煙測試）
-kudioenhance evaluate -c config.yaml -n exp1   # 評分（--full 加上 PESQ/STOI）
+kudioenhance evaluate -c config.yaml -n exp1   # 評分（--full 加上 PESQ、STOI 等）
 ```
 
 每個階段讀取前一個階段寫出的結果，所以可以不重新混音就重新訓練，或不重新訓練就重新評估。
+
+### `evaluate` 寫出什麼
+
+`evaluate` 把測試集的每個檔案增強後寫到 `runs/exp1/enhanced/`，存成 32 位元浮點，評分的對象就是模型輸出的原樣。接著把三邊交給 `kudio.score_dataset`：增強檔對乾淨檔評分，noisy 檔當 baseline。run 目錄裡除了 `report.csv`，還有結果表的三種格式 `results.md`、`results.tex`、`results.json`，以及 `results.bib`，裡面是 kudio 和表上每個指標的 BibTeX。表的每一列是 noisy 輸入的平均、增強後的平均和兩者的差，各附 95% BCa 區間，再來是這個差的雙尾符號翻轉檢定，和對所有列做 Holm 調整後的 p 值。表下的 signature 記下 kudio 版本、取樣率、每個指標的設定和背後套件的版本，數字是怎麼算出來的都查得回去。
+
+不加 `--full` 時評分段落 SNR、SI-SDR 和 SNR，只需要 numpy。`--full` 再加上 PESQ、CSIG/CBAK/COVL、STOI 和 SDR，沒裝的就略過並發出警告。`--metrics pesq,stoi,si_sdr` 用 kudio 的名稱指定，只評這幾個。`--dnsmos-dir` 加上 DNSMOS P.835 和 P.808；這需要 `pip install "kudio[dnsmos]"`，以及 [microsoft/DNS-Challenge](https://github.com/microsoft/DNS-Challenge) 的 ONNX 模型，kudio 沒有附。`--jobs 4` 一次評四個檔。
+
+同一位說話者的句子彼此不獨立，所以檔名帶得出說話者時（像 VCTK 的 `p232_001.wav`），區間按整位說話者重抽。這要有夠多說話者：少於 10 位，區間會明顯達不到 95%，在 kudio 的模擬裡只有 2 位時，區間涵蓋真值的比例只有一半。VoiceBank-DEMAND 的測試集只有 2 位，p232 和 p257，所以這時區間改按句子重抽，表下會寫一行說明：區間反映的是這兩位說話者的其他句子，不代表第三位說話者。`--speakers` 接一個正規表示式，第一個群組就是說話者；給 `''` 則不分說話者。
 
 ## 設定
 
@@ -145,20 +154,20 @@ kudioenhance models
 ```
 
 ```
-blstm       stacked bidirectional LSTM                       units: [1024, 1024, 1024]
-conv_ae     dilated Conv1D autoencoder, residual             units: [1024, 1024, 1024]
-crn         causal conv-recurrent network (Tan & Wang 2018)  units: [16, 32, 64, 64, 64]
-ddae        dense denoising autoencoder, frame-wise          units: [1024, 1024, 1024]
-unet        2-D U-Net over time and frequency, non-causal    units: [16, 32, 64, 128]
+blstm       stacked bidirectional LSTM (Erdogan et al. 2015)                         units: [1024, 1024, 1024]
+conv_ae     dilated Conv1D autoencoder, residual (after Tan et al. 2019)             units: [1024, 1024, 1024]
+crn         causal conv-recurrent network (Tan & Wang 2018)                          units: [16, 32, 64, 64, 64]
+ddae        dense denoising autoencoder, frame-wise (Xu et al. 2015)                 units: [1024, 1024, 1024]
+unet        2-D U-Net over time and frequency, non-causal (Ronneberger et al. 2015)  units: [16, 32, 64, 128]
 ```
 
 | 名稱 | 輸入形狀 | 因果 | 是什麼、何時選用 |
 |---|---|---|---|
-| `ddae` | `(N, bins × (2·context+1))` | 否——看得到前後 `context` 幀 | 全連接降噪自編碼器。逐幀、快速，是穩健的基準。 |
-| `blstm` | `(N, n_frames, bins)` | 否 | 堆疊的雙向 LSTM。雙向的時間上下文。 |
-| `conv_ae` | `(N, n_frames, bins)` | 否 | 帶殘差連接的膨脹 Conv1D 自編碼器——從「讓訊號直接通過」開始學，而不是從雜訊開始。 |
+| `ddae` | `(N, bins × (2·context+1))` | 否——看得到前後 `context` 幀 | 全連接網路，從一段連續幀推出中間那一幀，做法同 Xu 等人的 *A regression approach to speech enhancement based on deep neural networks*（IEEE/ACM TASLP 2015）。名稱來自 Lu 等人的 *Speech enhancement based on deep denoising autoencoder*（Interspeech 2013）。逐幀、快速，是穩健的基準。 |
+| `blstm` | `(N, n_frames, bins)` | 否 | 堆疊的雙向 LSTM，同 Erdogan 等人的 *Phase-sensitive and recognition-boosted speech separation using deep recurrent neural networks*（ICASSP 2015）。雙向的時間上下文。 |
+| `conv_ae` | `(N, n_frames, bins)` | 否 | 帶殘差連接的膨脹 Conv1D 自編碼器——從「讓訊號直接通過」開始學，而不是從雜訊開始。沿時間的卷積是 Tan、Chen 與 Wang 的 *Gated residual networks with dilated convolutions for monaural speech enhancement*（IEEE/ACM TASLP 2019）的簡化版，拿掉了前面的 2-D 卷積和閘門；膨脹率逐層加倍的做法來自 Yu 與 Koltun（ICLR 2016）。 |
 | `crn` | `(N, n_frames, bins)` | **是** | 依 Tan & Wang 的卷積遞迴網路（*A convolutional recurrent neural network for real-time speech enhancement*，Interspeech 2018）：在時間與頻率上跨步的 2-D 卷積編碼器、沿時間的 LSTM，以及對稱的解碼器，把每層編碼器的輸出接回來。當輸出不能等待後面的內容時選它。 |
-| `unet` | `(N, n_frames, bins)` | 否——約往後看 50 幀 | 時間與頻率上的 2-D U-Net：卷積區塊，往下時兩軸都減半，往上時以跳接接回。適合整檔離線增強；在預設寬度下約五十萬個參數，也是這裡最小的模型。 |
+| `unet` | `(N, n_frames, bins)` | 否——約往後看 50 幀 | 時間與頻率上的 2-D U-Net，架構依 Ronneberger 等人的 *U-Net: Convolutional networks for biomedical image segmentation*（MICCAI 2015），用在頻譜上、輸出遮罩的做法同 Jansson 等人的 *Singing voice separation with deep U-Net convolutional networks*（ISMIR 2017）：卷積區塊，往下時兩軸都減半，往上時以跳接接回。適合整檔離線增強；在預設寬度下約五十萬個參數，也是這裡最小的模型。 |
 
 序列模型用固定長度的視窗訓練，但模型本身沒有固定時間軸長度，所以同一組權重可以一次處理整段語句。兩個 2-D 模型也接受任何 `n_fft`：它們在內部把時間與頻率補到減半所需的大小，再裁回來。
 
@@ -312,7 +321,9 @@ runs/exp1/
 ├── stats.npz        # 特徵經過的 Standardizer
 ├── history.json     # 訓練曲線（有 matplotlib 時另有 history.png）
 ├── train.json  val.json  test.json  manifest.json
-└── report.csv       # evaluate 之後產生
+├── enhanced/        # evaluate 之後產生：模型輸出的測試集
+├── report.csv       # 逐檔分數
+└── results.md  results.tex  results.json  results.bib   # 結果表
 ```
 
 `.pt` 檔是一個單純的字典——格式標記、訓練時的架構與目標，以及一個 `state_dict`——以 `torch.load(..., weights_only=True)` 讀回。裡面沒有任何被 pickle 的類別，所以打開別人傳來的 run 不會執行他們的程式碼；`Enhancer.load` 會先依 `config.yaml` 重建網路，再把權重灌進去。它也永遠是最好的那個 epoch：每當監控的損失改善時訓練就存檢查點，停止時再把那組權重放回模型。
@@ -340,7 +351,7 @@ src/kudioenhance/
 ├── train.py         # 訓練迴圈：Adam、檢查點、提早停止
 ├── checkpoint.py    # .pt 格式
 ├── inference.py     # Enhancer
-├── evaluate.py      # 逐檔評分 + CSV 報告
+├── evaluate.py      # 測試集交給 kudio.score_dataset，產生結果表
 ├── pipeline.py      # 三個階段
 └── cli.py           # kudioenhance
 ```
@@ -392,6 +403,10 @@ kudioenhance train -c runs/exp1/config.yaml -n exp1
 ### 3.5.0 起的變更
 
 `Pair`、`save_manifest`、`load_manifest` 與 `split_pairs` 現在來自 **kudio**——它們沒有任何降噪專屬的東西。磁碟上的 JSON 不變，這些名稱也仍可從 `kudioenhance.data` 匯入，但 kudio 的 `split_pairs` 比較嚴格：`val_split + test_split >= 1.0` 會引發錯誤，而不是悄悄把所有資料都交給訓練。
+
+## 引用 KudioEnhance
+
+研究中用到 KudioEnhance 的話，請引用它。GitHub 上「Cite this repository」顯示的就是 `CITATION.cff`。`evaluate` 會在結果表旁邊寫出 `results.bib`：先是 KudioEnhance，再來是你訓練的架構所依據的論文，然後是 kudio 和表上每個指標的出處，每篇只出現一次，key 和表下列的一致。只要某個架構的條目，用 `kudioenhance.models.model_bibtex("crn")`。
 
 ## 相關專案
 

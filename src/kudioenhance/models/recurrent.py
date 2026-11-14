@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 """Bidirectional LSTM — temporal context in both directions.
 
+Stacked BLSTMs over spectral frames, ending in a sigmoid mask, are the
+network of H. Erdogan, J. R. Hershey, S. Watanabe and J. Le Roux,
+"Phase-sensitive and recognition-boosted speech separation using deep
+recurrent neural networks", ICASSP 2015, pp. 708-712. With the spectrum
+target the head is linear instead, which their paper does not try.
+
 Trained on fixed-length windows, but nothing in it fixes the length of the
 time axis, so the same weights enhance a whole utterance in one pass at
 inference time.

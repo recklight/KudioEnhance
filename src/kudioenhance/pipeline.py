@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -23,7 +23,7 @@ from kudioenhance.data import (
     split_pairs,
     synthesize as synthesize_data,
 )
-from kudioenhance.evaluate import evaluate_pairs, write_report
+from kudioenhance.evaluate import VCTK_SPEAKER, score_split, write_report
 from kudioenhance.features import Standardizer
 from kudioenhance.inference import Enhancer
 
@@ -139,18 +139,42 @@ def train(cfg: Config, name: str, *, epochs: Optional[int] = None,
 
 # ------------------------------------------------------------------ stage 3
 
-def evaluate(cfg: Config, name: str, *, optional: bool = False
-             , pesq_mode: str = "auto",
-             pesq_scale: str = "lqo") -> Tuple[List[Dict[str, object]], Dict[str, float]]:
-    """Score the held-out split with the trained model."""
+def evaluate(cfg: Config, name: str, *, optional: bool = False,
+             pesq_mode: str = "auto", pesq_scale: str = "lqo",
+             metrics: Optional[Sequence[str]] = None, speakers=VCTK_SPEAKER,
+             dnsmos_dir=None, jobs: int = 1
+             ) -> Tuple[List[Dict[str, object]], Dict[str, float]]:
+    """Score the held-out split with the trained model.
+
+    The enhanced files go to ``enhanced/`` in the run, and the split is
+    scored by :func:`~kudioenhance.evaluate.score_split`. Beside
+    ``report.csv``, the per-file scores, the run gets the table as
+    ``results.md``, ``results.tex`` and ``results.json``, with its intervals,
+    tests and signature, and ``results.bib``.
+
+    :param optional: score :data:`~kudioenhance.evaluate.FULL_METRICS`, what
+        is installed of them.
+    :param metrics, speakers, dnsmos_dir, jobs: as
+        :func:`~kudioenhance.evaluate.score_split` takes them.
+    :returns: the per-file rows and the means, as ``report.csv`` has them.
+    """
     test_pairs = _load_split(cfg, name, "test")
     if not test_pairs:
         raise ValueError(
             "the test split is empty — raise data.test_split and re-synthesize")
     enhancer = Enhancer.load(cfg.run_dir(name))
-    rows, summary = evaluate_pairs(enhancer, test_pairs, optional=optional,
-                                   pesq_mode=pesq_mode, pesq_scale=pesq_scale)
+    result = score_split(enhancer, test_pairs, cfg.enhanced_dir(name),
+                         metrics=metrics, full=optional, pesq_mode=pesq_mode,
+                         pesq_scale=pesq_scale, speakers=speakers,
+                         dnsmos_dir=dnsmos_dir, jobs=jobs,
+                         model=enhancer.cfg.model.name)
+    rows, summary = result.report()
     write_report(cfg.report_path(name), rows, summary)
+    result.save(cfg.run_dir(name))
+    log.info("evaluated %d file(s): SI-SDR %.2f -> %.2f dB (%+.2f)",
+             len(rows), summary.get("noisy_si_sdr", float("nan")),
+             summary.get("enhanced_si_sdr", float("nan")),
+             summary.get("delta_si_sdr", float("nan")))
     return rows, summary
 
 
@@ -158,10 +182,13 @@ def evaluate(cfg: Config, name: str, *, optional: bool = False
 
 def run(cfg: Config, name: str, *, epochs: Optional[int] = None,
         optional: bool = False, verbose: int = 1, pesq_mode: str = "auto",
-             pesq_scale: str = "lqo") -> Dict[str, float]:
+        pesq_scale: str = "lqo", metrics: Optional[Sequence[str]] = None,
+        speakers=VCTK_SPEAKER, dnsmos_dir=None, jobs: int = 1
+        ) -> Dict[str, float]:
     """synthesize -> train -> evaluate, returning the summary scores."""
     synthesize(cfg, name)
     train(cfg, name, epochs=epochs, verbose=verbose)
-    _, summary = evaluate(cfg, name, optional=optional,
-                          pesq_mode=pesq_mode, pesq_scale=pesq_scale)
+    _, summary = evaluate(cfg, name, optional=optional, pesq_mode=pesq_mode,
+                          pesq_scale=pesq_scale, metrics=metrics,
+                          speakers=speakers, dnsmos_dir=dnsmos_dir, jobs=jobs)
     return summary

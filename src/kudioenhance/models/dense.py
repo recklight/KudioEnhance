@@ -1,9 +1,17 @@
 # -*- coding: utf-8 -*-
 """Deep denoising autoencoder — the frame-wise baseline.
 
-Maps one (context-stacked) noisy frame to one clean frame. No temporal
-modelling beyond the stacked context, which makes it fast to train and a
-sensible reference point for the sequence models.
+Maps one (context-stacked) noisy frame to one clean frame, as the regression
+network of Y. Xu, J. Du, L.-R. Dai and C.-H. Lee, "A regression approach to
+speech enhancement based on deep neural networks", IEEE/ACM Trans. Audio,
+Speech, Lang. Process. 23(1), 7-19, 2015, does; their paper also trains it
+on the ideal ratio mask, the ``irm`` target here. The name comes from X. Lu,
+Y. Tsao, S. Matsuda and C. Hori, "Speech enhancement based on deep denoising
+autoencoder", Interspeech 2013, whose autoencoder maps a patch of frames to
+a patch rather than to the frame at its centre.
+
+No temporal modelling beyond the stacked context, which makes it fast to
+train and a sensible reference point for the sequence models.
 """
 from __future__ import annotations
 

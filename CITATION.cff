@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use KudioEnhance in your research, please cite it as below."
+title: "KudioEnhance"
+abstract: "Train and run learned speech-enhancement (denoising) models on top of the kudio audio toolkit."
+type: software
+authors:
+  - alias: "RL"
+version: "1.0"
+date-released: "2026-10-23"
+license: MIT
+repository-code: "https://github.com/recklight/KudioEnhance"
+url: "https://pypi.org/project/kudioenhance/"
+keywords:
+  - speech-enhancement
+  - denoising
+  - audio
+  - deep-learning
+  - pytorch
+  - spectrogram

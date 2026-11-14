@@ -5,6 +5,17 @@ Dilation widens the receptive field without striding, so the time axis keeps
 its length exactly and variable-length input needs no cropping or padding
 bookkeeping. The output is a residual correction to the noisy input, which
 starts training from "pass the signal through" rather than from noise.
+
+The convolutions along time over STFT magnitudes, dilated further at each
+layer, are the middle of K. Tan, J. Chen and D. Wang, "Gated residual
+networks with dilated convolutions for monaural speech enhancement",
+IEEE/ACM Trans. Audio, Speech, Lang. Process. 27(1), 189-198, 2019. This
+is a cut-down form of it: no 2-D convolutions over frequency in front, no
+gates, no residual connection inside each block, and the dilations double
+once, 1, 2, 4, ..., where theirs run 1 to 32 three times over. Doubling the
+dilation to grow the receptive field exponentially is from F. Yu and
+V. Koltun, "Multi-scale context aggregation by dilated convolutions",
+ICLR 2016.
 """
 from __future__ import annotations
 

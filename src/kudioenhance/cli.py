@@ -64,14 +64,31 @@ def _parser() -> argparse.ArgumentParser:
                            choices=["lqo", "raw"],
                            help="PESQ scale: 'lqo' is MOS-LQO (what kudio has "
                                 "always reported); 'raw' is the narrowband "
-                                "P.862 score most enhancement papers quote. "
-                                "raw 2.03 is about 1.65 MOS-LQO")
+                                "P.862 score before the P.862.1 mapping. "
+                                "raw 2.03 is about 1.66 MOS-LQO")
             p.add_argument("--pesq-mode", default="auto",
                            choices=["auto", "nb", "wb"],
                            help="PESQ bandwidth; 'auto' picks by sample rate")
             p.add_argument("--full", action="store_true",
-                           help="also compute PESQ/STOI/SDR (STOI and SDR need "
-                                "kudio[eval]; PESQ needs kudio[pesq])")
+                           help="also score PESQ, CSIG/CBAK/COVL, STOI and SDR, "
+                                "what is installed of them (STOI and SDR need "
+                                "kudio[eval]; PESQ and the composite ratings "
+                                "kudio[pesq])")
+            p.add_argument("--metrics",
+                           help="comma-separated metrics in kudio's names, "
+                                "e.g. pesq,stoi,si_sdr; replaces the default "
+                                "set and --full")
+            p.add_argument("--speakers",
+                           help="regular expression whose first group, found "
+                                "in each file name, is the speaker; not given, "
+                                "the p232 of VCTK's p232_001.wav; '' for none. "
+                                "Under 10 speakers the intervals resample "
+                                "sentences")
+            p.add_argument("--dnsmos-dir",
+                           help="folder of the DNSMOS models; given, DNSMOS "
+                                "P.835 and P.808 are scored too")
+            p.add_argument("--jobs", type=int, default=1,
+                           help="files scored at once, each in its own process")
 
     denoise = sub.add_parser("denoise",
                              help="enhance a file, or a folder, with a trained run")
@@ -177,29 +194,36 @@ def main(argv=None) -> int:
         print(f"model -> {cfg.model_path(args.name)}")
         return 0
 
+    from kudioenhance.evaluate import VCTK_SPEAKER
+    speakers = VCTK_SPEAKER if args.speakers is None else (args.speakers or None)
+    scoring = {"optional": args.full, "pesq_mode": args.pesq_mode,
+               "pesq_scale": args.pesq_scale, "metrics": _metrics(args.metrics),
+               "speakers": speakers, "dnsmos_dir": args.dnsmos_dir,
+               "jobs": args.jobs}
     if args.command == "evaluate":
-        _, summary = pipeline.evaluate(
-            cfg, args.name, optional=args.full,
-            pesq_mode=getattr(args, "pesq_mode", "auto"),
-            pesq_scale=getattr(args, "pesq_scale", "lqo"))
-        _print_summary(summary)
-        print(f"report -> {cfg.report_path(args.name)}")
-        return 0
-
-    summary = pipeline.run(cfg, args.name, epochs=args.epochs,
-                           optional=args.full,
-                           pesq_mode=getattr(args, "pesq_mode", "auto"),
-                           pesq_scale=getattr(args, "pesq_scale", "lqo"))
+        _, summary = pipeline.evaluate(cfg, args.name, **scoring)
+    else:
+        summary = pipeline.run(cfg, args.name, epochs=args.epochs, **scoring)
     _print_summary(summary)
+    print(f"report -> {cfg.report_path(args.name)}")
+    print(f"table  -> {cfg.results_path(args.name)} (.tex, .json, .bib beside it)")
     return 0
 
 
+def _metrics(text):
+    if text is None:
+        return None
+    return [name.strip() for name in text.split(",") if name.strip()]
+
+
 def _print_summary(summary) -> None:
-    for metric in ("si_sdr", "snr", "seg_snr", "pesq", "stoi", "sdr"):
+    names = [key[len("noisy_"):] for key in summary if key.startswith("noisy_")]
+    width = max([8] + [len(name) for name in names])
+    for metric in names:
         noisy, enhanced = summary.get(f"noisy_{metric}"), summary.get(f"enhanced_{metric}")
         if noisy is None or enhanced is None:
             continue
-        print(f"{metric:8s}  {noisy:8.3f} -> {enhanced:8.3f}  "
+        print(f"{metric:{width}s}  {noisy:8.3f} -> {enhanced:8.3f}  "
               f"({enhanced - noisy:+.3f})")
 
 

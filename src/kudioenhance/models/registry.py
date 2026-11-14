@@ -16,7 +16,8 @@ from kudioenhance.config import Config
 log = logging.getLogger(__name__)
 
 __all__ = ["ModelSpec", "REGISTRY", "list_models", "is_sequence",
-           "default_units", "resolve_units", "build_model", "count_params"]
+           "default_units", "resolve_units", "build_model", "count_params",
+           "model_bibtex"]
 
 
 @dataclass(frozen=True)
@@ -34,12 +35,17 @@ class ModelSpec:
     rather than to the config. It falls back to the 1024-wide stack every
     architecture shared before it had one, so an entry written without it
     builds what it always did.
+
+    ``references`` holds the BibTeX of the works the architecture follows,
+    which ``evaluate`` puts into ``results.bib`` beside kudio's entries for
+    the metrics.
     """
 
     builder: Callable
     sequence: bool
     description: str
     default_units: Tuple[int, ...] = (1024, 1024, 1024)
+    references: Tuple[str, ...] = ()
 
 
 def _ddae(cfg: Config):
@@ -83,13 +89,109 @@ def _unet(cfg: Config):
                       mask=cfg.model.predicts_mask)
 
 
+# The works each architecture follows, checked against the publisher's or
+# ISCA's record. ddae maps a context window to one frame as Xu et al. do, and
+# takes its name from Lu et al., whose autoencoder maps a patch of frames to a
+# patch. blstm is Erdogan et al.'s stacked BLSTM, whose output is a mask; the
+# spectrum head is the same network with a linear output. conv_ae keeps the
+# part of Tan, Chen & Wang's gated residual network that convolves along time
+# over STFT magnitudes with a doubling dilation, after Yu & Koltun, and drops
+# its 2-D front end, the gates and the repeated schedule. unet is
+# Ronneberger et al.'s layout, put on a spectrogram with a mask out as Jansson
+# et al. do; their U-Net strides instead of pooling.
+_LU_2013 = """@inproceedings{lu2013ddae,
+  author = {X. Lu and Y. Tsao and S. Matsuda and C. Hori},
+  title = {Speech enhancement based on deep denoising autoencoder},
+  booktitle = {Proc. Interspeech},
+  pages = {436--440},
+  year = {2013},
+  doi = {10.21437/Interspeech.2013-130},
+}
+"""
+_XU_2015 = """@article{xu2015regression,
+  author = {Y. Xu and J. Du and L.-R. Dai and C.-H. Lee},
+  title = {A regression approach to speech enhancement based on deep neural networks},
+  journal = {IEEE/ACM Trans. Audio, Speech, Lang. Process.},
+  volume = {23},
+  number = {1},
+  pages = {7--19},
+  year = {2015},
+  doi = {10.1109/TASLP.2014.2364452},
+}
+"""
+_ERDOGAN_2015 = """@inproceedings{erdogan2015phase,
+  author = {H. Erdogan and J. R. Hershey and S. Watanabe and J. {Le Roux}},
+  title = {Phase-sensitive and recognition-boosted speech separation using deep recurrent neural networks},
+  booktitle = {Proc. ICASSP},
+  pages = {708--712},
+  year = {2015},
+  doi = {10.1109/ICASSP.2015.7178061},
+}
+"""
+_TAN_2018 = """@inproceedings{tan2018crn,
+  author = {K. Tan and D. Wang},
+  title = {A convolutional recurrent neural network for real-time speech enhancement},
+  booktitle = {Proc. Interspeech},
+  pages = {3229--3233},
+  year = {2018},
+  doi = {10.21437/Interspeech.2018-1405},
+}
+"""
+_TAN_2019 = """@article{tan2019grn,
+  author = {K. Tan and J. Chen and D. Wang},
+  title = {Gated residual networks with dilated convolutions for monaural speech enhancement},
+  journal = {IEEE/ACM Trans. Audio, Speech, Lang. Process.},
+  volume = {27},
+  number = {1},
+  pages = {189--198},
+  year = {2019},
+  doi = {10.1109/TASLP.2018.2876171},
+}
+"""
+_YU_2016 = """@inproceedings{yu2016dilated,
+  author = {F. Yu and V. Koltun},
+  title = {Multi-scale context aggregation by dilated convolutions},
+  booktitle = {Proc. ICLR},
+  year = {2016},
+  doi = {10.48550/arXiv.1511.07122},
+  eprint = {1511.07122},
+  archiveprefix = {arXiv},
+}
+"""
+_RONNEBERGER_2015 = """@inproceedings{ronneberger2015unet,
+  author = {O. Ronneberger and P. Fischer and T. Brox},
+  title = {{U-Net}: Convolutional networks for biomedical image segmentation},
+  booktitle = {Proc. MICCAI},
+  series = {Lecture Notes in Computer Science},
+  volume = {9351},
+  pages = {234--241},
+  year = {2015},
+  doi = {10.1007/978-3-319-24574-4_28},
+}
+"""
+_JANSSON_2017 = """@inproceedings{jansson2017unet,
+  author = {A. Jansson and E. Humphrey and N. Montecchio and R. Bittner and A. Kumar and T. Weyde},
+  title = {Singing voice separation with deep {U-Net} convolutional networks},
+  booktitle = {Proc. ISMIR},
+  pages = {745--751},
+  year = {2017},
+  doi = {10.5281/zenodo.1414934},
+}
+"""
+
 REGISTRY: Dict[str, ModelSpec] = {
     "ddae": ModelSpec(_ddae, sequence=False,
-                      description="dense denoising autoencoder, frame-wise"),
+                      description="dense denoising autoencoder, frame-wise "
+                                  "(Xu et al. 2015)",
+                      references=(_XU_2015, _LU_2013)),
     "blstm": ModelSpec(_blstm, sequence=True,
-                       description="stacked bidirectional LSTM"),
+                       description="stacked bidirectional LSTM "
+                                   "(Erdogan et al. 2015)",
+                       references=(_ERDOGAN_2015,)),
     "conv_ae": ModelSpec(_conv_ae, sequence=True,
-                         description="dilated Conv1D autoencoder, residual"),
+                         description="dilated Conv1D autoencoder, residual "
+                                     "(after Tan et al. 2019)",
+                         references=(_TAN_2019, _YU_2016)),
     # The CRN's LSTMs read every channel at every bin left after five
     # halvings, so their width is the last channel count times
     # ceil(bins / 32): 64 x 9 = 576 at 257 bins, 64 x 5 = 320 at 129, for
@@ -98,7 +200,8 @@ REGISTRY: Dict[str, ModelSpec] = {
     # leaving 4 of 161 bins; here 256 x 9 would be an LSTM of some 85M.
     "crn": ModelSpec(_crn, sequence=True, default_units=(16, 32, 64, 64, 64),
                      description="causal conv-recurrent network "
-                                 "(Tan & Wang 2018)"),
+                                 "(Tan & Wang 2018)",
+                     references=(_TAN_2018,)),
     # Nothing in a U-Net depends on the number of bins, so this is about
     # half a million parameters at any n_fft. Three halvings take the default
     # 64-frame training window down to 8 frames at the bottom, where each
@@ -106,7 +209,8 @@ REGISTRY: Dict[str, ModelSpec] = {
     # fourth level would add parameters and no reach that training could use.
     "unet": ModelSpec(_unet, sequence=True, default_units=(16, 32, 64, 128),
                       description="2-D U-Net over time and frequency, "
-                                  "non-causal"),
+                                  "non-causal (Ronneberger et al. 2015)",
+                      references=(_RONNEBERGER_2015, _JANSSON_2017)),
 }
 
 
@@ -173,6 +277,12 @@ def build_model(cfg: Config):
              cfg.model.name, cfg.model.units, cfg.model.target,
              count_params(model))
     return model
+
+
+def model_bibtex(name: str) -> str:
+    """The BibTeX of the works architecture *name* follows, one entry after
+    another; empty when it has none."""
+    return "\n".join(_spec(name).references)
 
 
 def count_params(model) -> int:

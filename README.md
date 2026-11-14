@@ -60,9 +60,10 @@ separate extra**, `pip install "kudio[pesq]"`, because it builds from source
 left out of `[eval]` and `[all]`, which would otherwise stop installing.
 
 PESQ comes on two scales. `evaluate` reports MOS-LQO by default; pass
-`--pesq-scale raw` for the narrowband P.862 score most enhancement papers
-quote. They are different scales, not different roundings: raw 2.03 is about
-1.65 MOS-LQO.
+`--pesq-scale raw` for the narrowband P.862 score before the P.862.1 mapping.
+They are different scales, not different roundings: raw 2.03 is about
+1.66 MOS-LQO. Papers quote both, so check which one a paper used before
+setting your numbers beside it.
 
 ## Quick start
 
@@ -78,6 +79,7 @@ si_sdr      -4.812 ->    6.933  (+11.745)
 snr         -4.998 ->    5.221  (+10.219)
 seg_snr     -6.114 ->    1.870  (+7.984)
 report -> runs/exp1/report.csv
+table  -> runs/exp1/results.md (.tex, .json, .bib beside it)
 ```
 
 Then denoise anything with the trained run:
@@ -114,11 +116,44 @@ what "this did not learn" looks like.
 ```bash
 kudioenhance synth    -c config.yaml -n exp1   # mix + freeze the splits
 kudioenhance train    -c config.yaml -n exp1   # fit (--epochs 1 to smoke-test)
-kudioenhance evaluate -c config.yaml -n exp1   # score (--full adds PESQ/STOI)
+kudioenhance evaluate -c config.yaml -n exp1   # score (--full adds PESQ, STOI, ...)
 ```
 
 Each stage reads what the previous one wrote, so you can re-train without
 re-mixing, or re-evaluate without re-training.
+
+### What `evaluate` writes
+
+`evaluate` enhances every file of the test split into `runs/exp1/enhanced/`,
+in 32-bit float so that what gets scored is what the model put out, and hands
+the three sides to `kudio.score_dataset`: the enhanced files against the clean
+ones, with the noisy files as the baseline. Beside `report.csv` the run gets
+the table as `results.md`, `results.tex` and `results.json`, and
+`results.bib` with the BibTeX for kudio and every metric in it. A row of the
+table is the noisy input's mean, the enhanced mean, and the difference, each
+with its 95% BCa interval, then the two-sided sign-flip test of the
+difference and its p-value after Holm's adjustment over the rows. The
+signature under the table records kudio's version, the rate, each metric's
+settings and the versions of the packages behind them, so a number can be
+traced back to how it was computed.
+
+Without `--full` it scores segmental SNR, SI-SDR and SNR, which need nothing
+but numpy. `--full` adds PESQ, CSIG/CBAK/COVL, STOI and SDR, and leaves out,
+with a warning, whatever is not installed. `--metrics pesq,stoi,si_sdr` takes
+kudio's names and scores exactly those. `--dnsmos-dir` adds DNSMOS P.835 and
+P.808; that needs `pip install "kudio[dnsmos]"` and the ONNX models from
+[microsoft/DNS-Challenge](https://github.com/microsoft/DNS-Challenge), which
+kudio does not ship. `--jobs 4` scores four files at a time.
+
+The sentences of one speaker are not independent, so where the file names
+give the speaker, as VCTK's `p232_001.wav` does, the intervals resample whole
+speakers. That needs enough speakers: under 10 an interval falls well short
+of 95%, and over 2 it held the true mean half the time in kudio's
+simulation. VoiceBank-DEMAND's test set has 2, p232 and p257, so there the
+intervals resample sentences, and the line under the table says so: they
+cover other sentences from those two speakers, not a third one. `--speakers`
+takes a regular expression whose first group is the speaker, or `''` for
+none.
 
 ## Configuration
 
@@ -173,20 +208,20 @@ kudioenhance models
 ```
 
 ```
-blstm       stacked bidirectional LSTM                       units: [1024, 1024, 1024]
-conv_ae     dilated Conv1D autoencoder, residual             units: [1024, 1024, 1024]
-crn         causal conv-recurrent network (Tan & Wang 2018)  units: [16, 32, 64, 64, 64]
-ddae        dense denoising autoencoder, frame-wise          units: [1024, 1024, 1024]
-unet        2-D U-Net over time and frequency, non-causal    units: [16, 32, 64, 128]
+blstm       stacked bidirectional LSTM (Erdogan et al. 2015)                         units: [1024, 1024, 1024]
+conv_ae     dilated Conv1D autoencoder, residual (after Tan et al. 2019)             units: [1024, 1024, 1024]
+crn         causal conv-recurrent network (Tan & Wang 2018)                          units: [16, 32, 64, 64, 64]
+ddae        dense denoising autoencoder, frame-wise (Xu et al. 2015)                 units: [1024, 1024, 1024]
+unet        2-D U-Net over time and frequency, non-causal (Ronneberger et al. 2015)  units: [16, 32, 64, 128]
 ```
 
 | Name | Input layout | Causal | What it is, and when to choose it |
 |---|---|---|---|
-| `ddae` | `(N, bins × (2·context+1))` | no — sees ±`context` frames | Dense denoising autoencoder. Frame-wise, fast, a solid baseline. |
-| `blstm` | `(N, n_frames, bins)` | no | Stacked bidirectional LSTM. Temporal context in both directions. |
-| `conv_ae` | `(N, n_frames, bins)` | no | Dilated Conv1D autoencoder with a residual connection — starts from "pass the signal through" rather than from noise. |
+| `ddae` | `(N, bins × (2·context+1))` | no — sees ±`context` frames | Dense network from a window of frames to the one in the middle, as in Xu et al., *A regression approach to speech enhancement based on deep neural networks* (IEEE/ACM TASLP 2015). The name is from Lu et al., *Speech enhancement based on deep denoising autoencoder* (Interspeech 2013). Frame-wise, fast, a solid baseline. |
+| `blstm` | `(N, n_frames, bins)` | no | Stacked bidirectional LSTM, as in Erdogan et al., *Phase-sensitive and recognition-boosted speech separation using deep recurrent neural networks* (ICASSP 2015). Temporal context in both directions. |
+| `conv_ae` | `(N, n_frames, bins)` | no | Dilated Conv1D autoencoder with a residual connection — starts from "pass the signal through" rather than from noise. The convolutions along time are a cut-down form of Tan, Chen & Wang, *Gated residual networks with dilated convolutions for monaural speech enhancement* (IEEE/ACM TASLP 2019), without its 2-D front end or its gates; the doubling dilation is Yu & Koltun's (ICLR 2016). |
 | `crn` | `(N, n_frames, bins)` | **yes** | Convolutional recurrent network after Tan & Wang, *A convolutional recurrent neural network for real-time speech enhancement* (Interspeech 2018): a strided 2-D convolutional encoder over time and frequency, an LSTM over time, and a mirrored decoder that takes each encoder layer's output back in. Choose it when the output must not wait for what comes next. |
-| `unet` | `(N, n_frames, bins)` | no — about 50 frames ahead | 2-D U-Net over time and frequency: convolution blocks, halving both axes on the way down, skip connections on the way back up. Choose it for offline enhancement of whole files; at about half a million parameters it is also the smallest model here at the default widths. |
+| `unet` | `(N, n_frames, bins)` | no — about 50 frames ahead | 2-D U-Net over time and frequency, after Ronneberger et al., *U-Net: Convolutional networks for biomedical image segmentation* (MICCAI 2015), on a spectrogram with a mask out as in Jansson et al., *Singing voice separation with deep U-Net convolutional networks* (ISMIR 2017): convolution blocks, halving both axes on the way down, skip connections on the way back up. Choose it for offline enhancement of whole files; at about half a million parameters it is also the smallest model here at the default widths. |
 
 Sequence models are trained on fixed-length windows, but nothing in them
 fixes the length of the time axis, so the same weights enhance a whole
@@ -437,7 +472,9 @@ runs/exp1/
 ├── stats.npz        # the Standardizer the features went through
 ├── history.json     # the curves (and history.png with matplotlib)
 ├── train.json  val.json  test.json  manifest.json
-└── report.csv       # after evaluate
+├── enhanced/        # after evaluate: the test split, as the model put it out
+├── report.csv       # per-file scores
+└── results.md  results.tex  results.json  results.bib   # the table
 ```
 
 The `.pt` file is a plain dictionary — a format tag, the architecture and
@@ -474,7 +511,7 @@ src/kudioenhance/
 ├── train.py         # the training loop: Adam, checkpoints, early stopping
 ├── checkpoint.py    # the .pt format
 ├── inference.py     # Enhancer
-├── evaluate.py      # per-file scoring + CSV report
+├── evaluate.py      # the test split through kudio.score_dataset, the table
 ├── pipeline.py      # the three stages
 └── cli.py           # kudioenhance
 ```
@@ -585,6 +622,15 @@ spelled out.
 unchanged and the names are still importable from `kudioenhance.data`, but
 kudio's `split_pairs` is stricter: `val_split + test_split >= 1.0` raises
 instead of quietly handing everything to training.
+
+## Citing KudioEnhance
+
+If you use KudioEnhance in your research, please cite it. `CITATION.cff` holds
+what GitHub shows under "Cite this repository". `evaluate` writes
+`results.bib` beside the table: KudioEnhance's entry, the works behind the
+architecture you trained, then kudio and every metric in the table, each
+once, under the keys the table lists. `kudioenhance.models.model_bibtex("crn")`
+gives an architecture's entries on their own.
 
 ## Related
 
