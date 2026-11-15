@@ -8,13 +8,15 @@ than silently taking a default three stages later.
 from __future__ import annotations
 
 import dataclasses
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
 
-__all__ = ["AudioConfig", "DataConfig", "ModelConfig", "TrainConfig", "Config"]
+__all__ = ["AudioConfig", "DataConfig", "ModelConfig", "TrainConfig",
+           "LossConfig", "Config"]
 
 
 def _build(cls, values: Optional[Dict[str, Any]], section: str):
@@ -32,6 +34,22 @@ def _build(cls, values: Optional[Dict[str, Any]], section: str):
     return cls(**values)
 
 
+def _is_number(value) -> bool:
+    """A finite int or float, and not a bool, which YAML hands over for
+    ``yes``."""
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value))
+
+
+def _check_power(value, key: str) -> None:
+    """*value* is ``None`` or an exponent in (0, 1], the range in which raising
+    a magnitude to it compresses rather than expands."""
+    if value is not None and not (_is_number(value) and 0 < value <= 1):
+        raise ValueError(
+            f"{key} must be an exponent in (0, 1], or null for none; "
+            f"got {value!r}")
+
+
 @dataclass
 class AudioConfig:
     """STFT geometry — shared by feature extraction and reconstruction."""
@@ -46,6 +64,19 @@ class AudioConfig:
     #: number.
     win_length: Optional[int] = None
     window: str = "hamming"
+    #: The waveform path's models see the complex spectrum with its magnitude
+    #: raised to this power and its phase kept, ``|X|^c e^{j angle X}``;
+    #: ``None`` leaves it linear. 0.3 is the usual value: across a 40 dB
+    #: range it leaves the quiet bins 10^-0.6 of the loud ones in magnitude
+    #: instead of 10^-2. The log-power path takes the logarithm and does not
+    #: use it. What the losses compress is ``loss.compress``.
+    compress: Optional[float] = None
+    #: What the waveform path's centred STFT puts in the ``n_fft // 2``
+    #: samples it adds at each end: ``constant`` is zeros, as kudio pads, so
+    #: its frames are the log-power path's; ``reflect`` mirrors the signal,
+    #: as ``torch.stft`` does by default and GTCRN's code with it. The
+    #: log-power path pads with zeros whatever this says.
+    pad_mode: str = "constant"
 
     @property
     def window_length(self) -> int:
@@ -76,6 +107,10 @@ class AudioConfig:
         if self.hop_length > self.window_length:
             raise ValueError(f"hop_length ({self.hop_length}) cannot exceed "
                              f"win_length ({self.window_length})")
+        _check_power(self.compress, "audio.compress")
+        if self.pad_mode not in ("constant", "reflect"):
+            raise ValueError(f"audio.pad_mode must be 'constant' or "
+                             f"'reflect', got {self.pad_mode!r}")
 
 
 @dataclass
@@ -125,8 +160,17 @@ class DataConfig:
     #: nothing to synthesize, and the mixing settings above and the two
     #: split fractions are not used.
     prepared: Optional[str] = None
+    #: The waveform path's training examples: this many seconds cut from
+    #: each clean/noisy pair, at the same place in both and at a fresh random
+    #: place every epoch. A pair shorter than that is padded with silence at
+    #: its end. The log-power path trains on whole files and does not use it.
+    crop_seconds: float = 2.0
 
     def __post_init__(self) -> None:
+        if not (_is_number(self.crop_seconds) and self.crop_seconds > 0):
+            raise ValueError(
+                f"crop_seconds must be a positive number of seconds, got "
+                f"{self.crop_seconds!r}")
         if self.mode not in ("regular", "reg", "inc", "increment"):
             raise ValueError(f"unknown synthesis mode: {self.mode!r}")
         if not 0.0 <= self.val_split + self.test_split < 1.0:
@@ -253,6 +297,11 @@ class TrainConfig:
     #: to hold, at the price of a pass over the audio per epoch. See
     #: :func:`kudioenhance.data.build_dataset`.
     streaming: bool = False
+    #: Processes that read and crop the audio for the waveform path, beside
+    #: the one that trains; 0 reads it in the training process. The batches
+    #: are the same whatever the number, because where each crop is cut is
+    #: drawn in the training process. See :mod:`kudioenhance.waveform`.
+    num_workers: int = 0
 
     def __post_init__(self) -> None:
         if self.epochs < 1:
@@ -276,12 +325,83 @@ class TrainConfig:
             raise ValueError(
                 f"shuffle_buffer must be a number of examples, 0 or more; "
                 f"got {self.shuffle_buffer!r}")
+        if (isinstance(self.num_workers, bool)
+                or not isinstance(self.num_workers, int)
+                or self.num_workers < 0):
+            raise ValueError(
+                f"num_workers must be a number of processes, 0 or more; "
+                f"got {self.num_workers!r}")
         base, _, index = self.device.partition(":")
         if base not in DEVICES or (
                 index and not (base == "cuda" and index.isdigit())):
             raise ValueError(
                 f"unknown device {self.device!r}. Choose from "
                 f"{', '.join(DEVICES)}, or 'cuda:<index>'")
+
+
+#: The terms of the waveform path's loss, in the order they are summed. Each
+#: is a function of :mod:`kudioenhance.losses` and a weight in
+#: :class:`LossConfig` by the same name.
+LOSS_TERMS = ("complex_mse", "magnitude_mse", "time_l1", "neg_si_snr")
+
+
+@dataclass
+class LossConfig:
+    """What the waveform path trains on: a weighted sum of losses.
+
+    Each weight multiplies the function of :mod:`kudioenhance.losses` it is
+    named after, and a weight of 0 leaves that term out and uncomputed. The
+    log-power path trains on MSE and does not read this section.
+
+    The defaults are GTCRN's loss as its repository trains it (``loss.py``
+    in Xiaobin-Rong/gtcrn): 30 times the compressed complex MSE, 70 times the
+    compressed magnitude MSE, both at an exponent of 0.3, and ``-log10`` of
+    the SI-SNR ratio, taken without removing the mean. That last term is a
+    tenth of the negative SI-SNR in dB, hence 0.1 here. The 30/70 split is
+    Braun and Tashev's (2021) mix, 0.3 on the complex term and 0.7 on the
+    magnitude, scaled by 100.
+
+    The loss takes the STFT the ``audio`` section describes, so it is
+    GTCRN's only with GTCRN's ``audio`` as well: ``n_fft: 512``,
+    ``hop_length: 256``, ``window: sqrt_hann``, ``pad_mode: reflect``.
+    ``sqrt_hann`` exists only on the waveform path; kudio's log-power
+    features refuse it.
+    """
+
+    complex_mse: float = 30.0
+    magnitude_mse: float = 70.0
+    time_l1: float = 0.0
+    neg_si_snr: float = 0.1
+    #: The exponent the two spectral terms raise magnitudes to, phase kept;
+    #: ``None`` compares the spectra linearly.
+    compress: Optional[float] = 0.3
+    #: Remove the mean of both waveforms before SI-SNR, as Conv-TasNet does.
+    #: GTCRN's loss does not, so neither does the default; with it off, an
+    #: offset in the output counts as error there too.
+    zero_mean: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.zero_mean, bool):
+            raise ValueError(
+                f"loss.zero_mean must be true or false, got "
+                f"{self.zero_mean!r}")
+        for name in LOSS_TERMS:
+            weight = getattr(self, name)
+            if not (_is_number(weight) and weight >= 0):
+                raise ValueError(
+                    f"loss.{name} must be a weight of 0 or more, got "
+                    f"{weight!r}")
+        if not any(getattr(self, name) for name in LOSS_TERMS):
+            raise ValueError(
+                f"every loss weight is 0, which leaves nothing to train on; "
+                f"give one of {', '.join(LOSS_TERMS)} a positive weight")
+        _check_power(self.compress, "loss.compress")
+
+    @property
+    def weights(self) -> Dict[str, float]:
+        """The terms with a weight above 0, by name, in summing order."""
+        return {name: float(getattr(self, name)) for name in LOSS_TERMS
+                if getattr(self, name)}
 
 
 @dataclass
@@ -292,6 +412,9 @@ class Config:
     data: DataConfig = field(default_factory=DataConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
+    #: Read by the waveform path only. A config, or a run's ``config.yaml``,
+    #: without this section loads with the defaults.
+    loss: LossConfig = field(default_factory=LossConfig)
 
     # ----------------------------------------------------------------- yaml
 
@@ -314,6 +437,7 @@ class Config:
             data=_build(DataConfig, raw.get("data"), "data"),
             model=_build(ModelConfig, raw.get("model"), "model"),
             train=_build(TrainConfig, raw.get("train"), "train"),
+            loss=_build(LossConfig, raw.get("loss"), "loss"),
         )
 
     def to_dict(self) -> Dict[str, Any]:

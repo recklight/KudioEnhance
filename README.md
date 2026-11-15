@@ -532,6 +532,9 @@ src/kudioenhance/
 ├── vbd.py           # VoiceBank-DEMAND: resampling, the validation split
 ├── datasets.py      # the training set as torch sees it: held or streamed
 ├── features.py      # spectrogram / context stacking / windows / Standardizer
+├── waveform.py      # random crops of clean/noisy pairs, a seeded DataLoader
+├── spectral.py      # complex STFT in torch, power-law compression
+├── losses.py        # complex, magnitude, L1 and SI-SNR losses, and their mix
 ├── models/
 │   ├── registry.py      # name -> builder + data layout
 │   ├── dense.py         # ddae
@@ -562,10 +565,10 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-273 tests. The suite builds a tiny synthetic corpus in a temp directory and runs
+382 tests. The suite builds a tiny synthetic corpus in a temp directory and runs
 the whole pipeline — mix, train one epoch, enhance, score — in seconds. Tests
 that need PyTorch ask for it by name and skip cleanly when it is not
-installed; the other 147 still run.
+installed; the other 167 still run.
 
 The mask tests check the *formula*, not just that it runs: all-speech gives 1,
 all-noise gives 0, equal power gives 1/√2, and an oracle mask has to actually

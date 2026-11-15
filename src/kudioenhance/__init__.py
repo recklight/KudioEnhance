@@ -22,6 +22,7 @@ from kudioenhance.config import (
     AudioConfig,
     Config,
     DataConfig,
+    LossConfig,
     ModelConfig,
     TrainConfig,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "DataConfig",
     "ModelConfig",
     "TrainConfig",
+    "LossConfig",
     "Pair",
     "Standardizer",
     "Enhancer",

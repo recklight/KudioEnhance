@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from kudioenhance import AudioConfig, Config
+from kudioenhance import AudioConfig, Config, LossConfig
 
 
 def test_defaults_are_usable():
@@ -58,6 +58,23 @@ def test_section_must_be_a_mapping():
     ("train", {"shuffle_buffer": 2.5}, "shuffle_buffer"),
     # what YAML hands over for `streaming: "false"`, which is true
     ("train", {"streaming": "false"}, "streaming must be true or false"),
+    ("train", {"num_workers": -1}, "num_workers"),
+    ("train", {"num_workers": 1.5}, "num_workers"),
+    ("train", {"num_workers": True}, "num_workers"),
+    ("audio", {"compress": 0}, "audio.compress"),
+    ("audio", {"compress": 2}, "audio.compress"),
+    ("audio", {"compress": "0.3"}, "audio.compress"),
+    ("audio", {"pad_mode": "replicate"}, "audio.pad_mode"),
+    ("data", {"crop_seconds": 0}, "crop_seconds"),
+    ("data", {"crop_seconds": None}, "crop_seconds"),
+    ("data", {"crop_seconds": float("inf")}, "crop_seconds"),
+    ("loss", {"time_l1": -1}, "loss.time_l1"),
+    ("loss", {"neg_si_snr": float("nan")}, "loss.neg_si_snr"),
+    ("loss", {"complex_mse": True}, "loss.complex_mse"),
+    ("loss", {"complex_mse": 0, "magnitude_mse": 0, "neg_si_snr": 0},
+     "nothing to train on"),
+    ("loss", {"compress": 1.2}, "loss.compress"),
+    ("loss", {"zero_mean": "false"}, "loss.zero_mean"),
 ])
 def test_validation_rejects_bad_values(section, values, match):
     with pytest.raises(ValueError, match=match):
@@ -140,3 +157,104 @@ def test_run_paths_live_under_the_experiment(config):
     assert config.stats_path("exp1") == run / "stats.npz"
     assert config.report_path("exp1") == run / "report.csv"
     assert Path(config.train.out_dir).name == "runs"
+
+
+# ------------------------------------------------------- the waveform path
+
+#: A run's config.yaml with none of the waveform path's settings: a crn
+#: baseline on a prepared corpus.
+RUN_CONFIG_LOG_POWER = """\
+audio:
+  sr: 16000
+  n_fft: 512
+  hop_length: 256
+  win_length: null
+  window: hamming
+data:
+  clean_dir: data/clean
+  noise_dir: data/noise
+  mixed_dir: runs/mixed
+  snr_db: [-5, 0, 5]
+  rt60: []
+  drr_db: 0.0
+  reverberant_target: false
+  channel: null
+  mode: regular
+  seed: 17
+  val_split: 0.1
+  test_split: 0.1
+  max_files: null
+  prepared: data/vbd16k
+model:
+  name: crn
+  target: irm
+  context: 2
+  n_frames: 64
+  units: [16, 32, 64, 64, 64]
+  dropout: 0.1
+train:
+  epochs: 40
+  batch_size: 16
+  learning_rate: 0.001
+  patience: 8
+  out_dir: runs
+  shuffle_buffer: 3000
+  device: cpu
+  seed: 17
+  streaming: true
+"""
+
+
+def test_a_config_without_the_waveform_settings_loads_unchanged(tmp_path):
+    """Every value it names comes back as it was, and nothing it did not
+    name stands in the way: the new keys and the loss section take their
+    defaults."""
+    import yaml
+
+    path = tmp_path / "config.yaml"
+    path.write_text(RUN_CONFIG_LOG_POWER, encoding="utf-8")
+    cfg = Config.from_yaml(path)
+    written = yaml.safe_load(RUN_CONFIG_LOG_POWER)
+    loaded = cfg.to_dict()
+    for section, values in written.items():
+        for key, value in values.items():
+            assert loaded[section][key] == value, (section, key)
+    assert set(loaded) - set(written) == {"loss"}
+    assert {key for section in written
+            for key in set(loaded[section]) - set(written[section])} == {
+        "compress", "pad_mode", "crop_seconds", "num_workers"}
+    assert cfg.audio.compress is None
+    assert cfg.audio.pad_mode == "constant"
+    assert cfg.data.crop_seconds == 2.0
+    assert cfg.train.num_workers == 0
+    assert cfg.loss == LossConfig()
+
+
+def test_the_waveform_settings_survive_a_round_trip(tmp_path):
+    cfg = Config.from_dict({
+        "audio": {"window": "sqrt_hann", "compress": 0.5,
+                  "pad_mode": "reflect"},
+        "data": {"crop_seconds": 1.5},
+        "train": {"num_workers": 4},
+        "loss": {"complex_mse": 1, "magnitude_mse": 0, "time_l1": 0.2,
+                 "neg_si_snr": 0, "compress": None, "zero_mean": True},
+    })
+    reloaded = Config.from_yaml(cfg.to_yaml(tmp_path / "config.yaml"))
+    assert reloaded.to_dict() == cfg.to_dict()
+    assert reloaded.loss.weights == {"complex_mse": 1.0, "time_l1": 0.2}
+    assert reloaded.loss.compress is None
+
+
+def test_the_default_loss_is_gtcrns():
+    """30 x complex + 70 x magnitude at c = 0.3, and its -log10 SI-SNR term,
+    a tenth of the negative SI-SNR in dB, with the mean left in."""
+    loss = LossConfig()
+    assert loss.weights == {"complex_mse": 30.0, "magnitude_mse": 70.0,
+                            "neg_si_snr": 0.1}
+    assert loss.compress == 0.3
+    assert loss.zero_mean is False
+
+
+def test_an_unknown_loss_key_names_the_offender():
+    with pytest.raises(ValueError, match=r"'loss': si_snr\."):
+        Config.from_dict({"loss": {"si_snr": 1.0}})
