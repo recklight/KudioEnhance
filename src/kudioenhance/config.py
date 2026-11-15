@@ -302,6 +302,13 @@ class TrainConfig:
     #: are the same whatever the number, because where each crop is cut is
     #: drawn in the training process. See :mod:`kudioenhance.waveform`.
     num_workers: int = 0
+    #: The largest L2 norm the waveform path lets the gradients of all the
+    #: weights together have: a larger one is scaled down to it before the
+    #: step (``torch.nn.utils.clip_grad_norm_``), and ``None`` leaves the
+    #: gradients alone. SEtrain, the training code GTCRN's authors
+    #: published, clips at 3.0. The log-power path does not clip, and its
+    #: training refuses a value rather than ignore it.
+    grad_clip: Optional[float] = None
 
     def __post_init__(self) -> None:
         if self.epochs < 1:
@@ -331,6 +338,11 @@ class TrainConfig:
             raise ValueError(
                 f"num_workers must be a number of processes, 0 or more; "
                 f"got {self.num_workers!r}")
+        if self.grad_clip is not None and not (
+                _is_number(self.grad_clip) and self.grad_clip > 0):
+            raise ValueError(
+                f"grad_clip must be a positive gradient norm, or null not to "
+                f"clip; got {self.grad_clip!r}")
         base, _, index = self.device.partition(":")
         if base not in DEVICES or (
                 index and not (base == "cuda" and index.isdigit())):
@@ -359,7 +371,8 @@ class LossConfig:
     the SI-SNR ratio, taken without removing the mean. That last term is a
     tenth of the negative SI-SNR in dB, hence 0.1 here. The 30/70 split is
     Braun and Tashev's (2021) mix, 0.3 on the complex term and 0.7 on the
-    magnitude, scaled by 100.
+    magnitude, scaled by 100. The GTCRN paper's Eq. 1 is the same loss
+    before that scaling, with 0.01 on the ``-log10`` SI-SNR term.
 
     The loss takes the STFT the ``audio`` section describes, so it is
     GTCRN's only with GTCRN's ``audio`` as well: ``n_fft: 512``,

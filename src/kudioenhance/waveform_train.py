@@ -264,6 +264,9 @@ def _run_epoch(model, batches, stft: ComplexSTFT, cfg: Config, device,
             loss = weighted_sum(terms, cfg.loss)
             if training:
                 loss.backward()
+                if cfg.train.grad_clip is not None:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(),
+                                                   cfg.train.grad_clip)
                 optimiser.step()
             n = len(noisy)
             count += n
@@ -344,7 +347,9 @@ def fit_waveform(model, train_loader, val_loader, cfg: Config, run_dir, *,
 
     Adam at ``train.learning_rate``, the rate halved after ``patience // 2``
     epochs without progress, and training stopped once ``train.patience``
-    epochs pass without one, as the log-power path does. Whenever the
+    epochs pass without one, as the log-power path does. With
+    ``train.grad_clip`` set, the gradients are clipped to that norm before
+    every step. Whenever the
     monitored loss falls, ``<model>.pt`` is rewritten with the new best
     weights, and at the end the best weights are put back into *model*.
 

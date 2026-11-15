@@ -24,7 +24,7 @@ def test_registry_is_described():
 def test_unknown_model_lists_the_alternatives(config):
     config.model.name = "transformer"
     with pytest.raises(ValueError,
-                       match="Available: blstm, conv_ae, crn, ddae, unet"):
+                       match="Available: blstm, conv_ae, crn, ddae, gtcrn, unet"):
         build_model(config)
 
 

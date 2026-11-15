@@ -107,6 +107,20 @@ def _never_alone(batches: Iterable, name: str) -> Iterator:
         yield inputs, targets
 
 
+def check_no_clipping(cfg: Config) -> None:
+    """Refuse ``train.grad_clip`` for a model of the log-power path, whose
+    loop does not clip.
+
+    :func:`fit` asks this before the first batch, and the pipeline before it
+    mixes or reads any audio, so the setting fails at once rather than being
+    ignored for a whole run.
+    """
+    if cfg.train.grad_clip is not None:
+        raise ValueError(
+            f"{cfg.model.name} trains on the log-power path, which does not "
+            f"clip gradients; leave train.grad_clip unset")
+
+
 def training_seed(cfg: Config) -> Optional[int]:
     """``train.seed``, or ``data.seed`` when that is not set."""
     return cfg.train.seed if cfg.train.seed is not None else cfg.data.seed
@@ -185,6 +199,7 @@ def fit(model, x, y: Optional[np.ndarray], cfg: Config, model_path,
     from kudioenhance.datasets import InMemoryDataset, as_dataset
 
     check_batch_size(cfg)
+    check_no_clipping(cfg)
     frame_wise = _frame_wise(cfg)
     device = resolve_device(cfg.train.device)
     seed = training_seed(cfg)

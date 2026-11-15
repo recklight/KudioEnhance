@@ -61,6 +61,11 @@ def test_section_must_be_a_mapping():
     ("train", {"num_workers": -1}, "num_workers"),
     ("train", {"num_workers": 1.5}, "num_workers"),
     ("train", {"num_workers": True}, "num_workers"),
+    ("train", {"grad_clip": 0}, "grad_clip"),
+    ("train", {"grad_clip": -3.0}, "grad_clip"),
+    ("train", {"grad_clip": True}, "grad_clip"),
+    ("train", {"grad_clip": "3"}, "grad_clip"),
+    ("train", {"grad_clip": float("inf")}, "grad_clip"),
     ("audio", {"compress": 0}, "audio.compress"),
     ("audio", {"compress": 2}, "audio.compress"),
     ("audio", {"compress": "0.3"}, "audio.compress"),
@@ -222,11 +227,12 @@ def test_a_config_without_the_waveform_settings_loads_unchanged(tmp_path):
     assert set(loaded) - set(written) == {"loss"}
     assert {key for section in written
             for key in set(loaded[section]) - set(written[section])} == {
-        "compress", "pad_mode", "crop_seconds", "num_workers"}
+        "compress", "pad_mode", "crop_seconds", "num_workers", "grad_clip"}
     assert cfg.audio.compress is None
     assert cfg.audio.pad_mode == "constant"
     assert cfg.data.crop_seconds == 2.0
     assert cfg.train.num_workers == 0
+    assert cfg.train.grad_clip is None
     assert cfg.loss == LossConfig()
 
 
@@ -235,7 +241,7 @@ def test_the_waveform_settings_survive_a_round_trip(tmp_path):
         "audio": {"window": "sqrt_hann", "compress": 0.5,
                   "pad_mode": "reflect"},
         "data": {"crop_seconds": 1.5},
-        "train": {"num_workers": 4},
+        "train": {"num_workers": 4, "grad_clip": 3.0},
         "loss": {"complex_mse": 1, "magnitude_mse": 0, "time_l1": 0.2,
                  "neg_si_snr": 0, "compress": None, "zero_mean": True},
     })

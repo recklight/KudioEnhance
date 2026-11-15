@@ -19,7 +19,7 @@
 
 每個階段讀取前一個階段寫出的結果，所以可以不重新混音就重新訓練，也可以不重新訓練就重新評估。`run` 會依序執行三個階段。
 
-模型在 **log-power 頻譜域** 運作，並沿用含噪訊號的相位——這是標準的「只處理幅度」增強做法。特徵擷取與重建都經過 `kudio`，所以模型看到的，和任何以 kudio 為基礎的工具產生的完全相同。
+其中五個模型在 **log-power 頻譜域** 運作，並沿用含噪訊號的相位——這是標準的「只處理幅度」增強做法。特徵擷取與重建都經過 `kudio`，所以模型看到的，和任何以 kudio 為基礎的工具產生的完全相同。第六個 `gtcrn` 輸出複數遮罩、用波形訓練，見下方「波形路徑：`gtcrn`」一節。
 
 ## 安裝
 
@@ -126,7 +126,7 @@ data:
   test_split: 0.1
 
 model:
-  name: ddae                # ddae | blstm | conv_ae | crn | unet
+  name: ddae                # ddae | blstm | conv_ae | crn | unet | gtcrn
   target: spectrum          # spectrum | irm  -- 見「網路被要求輸出什麼」
   context: 2                # 逐幀模型：前後各堆疊幾幀進輸入
   n_frames: 64              # 序列模型：每個訓練視窗的幀數
@@ -145,7 +145,7 @@ train:
   shuffle_buffer: 0         # 僅串流模式：保留多少樣本用來打亂
 ```
 
-每個鍵都是有型別的 dataclass 欄位。打錯字會在載入時失敗並指出是哪個鍵——不會在三個階段之後悄悄改用預設值。
+每個鍵都是有型別的 dataclass 欄位。打錯字會在載入時失敗並指出是哪個鍵——不會在三個階段之後悄悄改用預設值。`gtcrn` 另有幾個自己的鍵和一個 `loss` 段，列在「波形路徑：`gtcrn`」一節。
 
 ## 模型
 
@@ -154,11 +154,12 @@ kudioenhance models
 ```
 
 ```
-blstm       stacked bidirectional LSTM (Erdogan et al. 2015)                         units: [1024, 1024, 1024]
-conv_ae     dilated Conv1D autoencoder, residual (after Tan et al. 2019)             units: [1024, 1024, 1024]
-crn         causal conv-recurrent network (Tan & Wang 2018)                          units: [16, 32, 64, 64, 64]
-ddae        dense denoising autoencoder, frame-wise (Xu et al. 2015)                 units: [1024, 1024, 1024]
-unet        2-D U-Net over time and frequency, non-causal (Ronneberger et al. 2015)  units: [16, 32, 64, 128]
+blstm       stacked bidirectional LSTM (Erdogan et al. 2015)                                  units: [1024, 1024, 1024]
+conv_ae     dilated Conv1D autoencoder, residual (after Tan et al. 2019)                      units: [1024, 1024, 1024]
+crn         causal conv-recurrent network (Tan & Wang 2018)                                   units: [16, 32, 64, 64, 64]
+ddae        dense denoising autoencoder, frame-wise (Xu et al. 2015)                          units: [1024, 1024, 1024]
+gtcrn       grouped temporal conv-recurrent network, causal, complex mask (Rong et al. 2024)  units: [16]
+unet        2-D U-Net over time and frequency, non-causal (Ronneberger et al. 2015)           units: [16, 32, 64, 128]
 ```
 
 | 名稱 | 輸入形狀 | 因果 | 是什麼、何時選用 |
@@ -167,11 +168,12 @@ unet        2-D U-Net over time and frequency, non-causal (Ronneberger et al. 20
 | `blstm` | `(N, n_frames, bins)` | 否 | 堆疊的雙向 LSTM，同 Erdogan 等人的 *Phase-sensitive and recognition-boosted speech separation using deep recurrent neural networks*（ICASSP 2015）。雙向的時間上下文。 |
 | `conv_ae` | `(N, n_frames, bins)` | 否 | 帶殘差連接的膨脹 Conv1D 自編碼器——從「讓訊號直接通過」開始學，而不是從雜訊開始。沿時間的卷積是 Tan、Chen 與 Wang 的 *Gated residual networks with dilated convolutions for monaural speech enhancement*（IEEE/ACM TASLP 2019）的簡化版，拿掉了前面的 2-D 卷積和閘門；膨脹率逐層加倍的做法來自 Yu 與 Koltun（ICLR 2016）。 |
 | `crn` | `(N, n_frames, bins)` | **是** | 依 Tan & Wang 的卷積遞迴網路（*A convolutional recurrent neural network for real-time speech enhancement*，Interspeech 2018）：在時間與頻率上跨步的 2-D 卷積編碼器、沿時間的 LSTM，以及對稱的解碼器，把每層編碼器的輸出接回來。當輸出不能等待後面的內容時選它。 |
-| `unet` | `(N, n_frames, bins)` | 否——約往後看 50 幀 | 時間與頻率上的 2-D U-Net，架構依 Ronneberger 等人的 *U-Net: Convolutional networks for biomedical image segmentation*（MICCAI 2015），用在頻譜上、輸出遮罩的做法同 Jansson 等人的 *Singing voice separation with deep U-Net convolutional networks*（ISMIR 2017）：卷積區塊，往下時兩軸都減半，往上時以跳接接回。適合整檔離線增強；在預設寬度下約五十萬個參數，也是這裡最小的模型。 |
+| `unet` | `(N, n_frames, bins)` | 否——約往後看 50 幀 | 時間與頻率上的 2-D U-Net，架構依 Ronneberger 等人的 *U-Net: Convolutional networks for biomedical image segmentation*（MICCAI 2015），用在頻譜上、輸出遮罩的做法同 Jansson 等人的 *Singing voice separation with deep U-Net convolutional networks*（ISMIR 2017）：卷積區塊，往下時兩軸都減半，往上時以跳接接回。適合整檔離線增強；在預設寬度下約五十萬個參數，也是這裡最小的 log-power 模型。 |
+| `gtcrn` | 複數頻譜 `(N, bins, frames)` | **是** | 依 Rong 等人的 GTCRN（*GTCRN: A speech enhancement model requiring ultralow computational resources*，ICASSP 2024）：低頻點保留、高頻點併成 ERB 頻帶，接分組時間卷積與遞迴注意力、分組雙路徑 GRU 網路，輸出複數比值遮罩。23,669 個權重，16 kHz 音訊每秒 26.3M 次乘加。運算資源很少、或相位也要估計時選它。 |
 
 序列模型用固定長度的視窗訓練，但模型本身沒有固定時間軸長度，所以同一組權重可以一次處理整段語句。兩個 2-D 模型也接受任何 `n_fft`：它們在內部把時間與頻率補到減半所需的大小，再裁回來。
 
-**因果**的意思是某一幀的輸出只取決於該幀及更早的幀——`crn` 的卷積只在過去那一側補值、它的 LSTM 只往前跑，並有測試把關。這是即時版本需要的性質，但本套件不做串流：`Enhancer` 仍一次增強整個檔案，而 STFT 本身也會帶來一個視窗的延遲。
+**因果**的意思是某一幀的輸出只取決於該幀及更早的幀——`crn` 與 `gtcrn` 的卷積只在過去那一側補值、沿時間的遞迴層只往前跑，兩者都有測試把關。這是即時版本需要的性質，但本套件不做串流：`Enhancer` 一次增強整個檔案（波形路徑上的長檔案一次 30 秒），而 STFT 本身也會帶來一個視窗的延遲。
 
 **`model.units`** 是各層寬度的列表：全連接層的單元數、LSTM 的單元數、卷積的濾波器或通道數。設為 `null` 時採用上面列出的架構預設值。寬度 1024 對全連接層很合理，對 2-D 卷積卻很荒謬（它的每個通道都是一整張時頻圖），所以預設值屬於架構本身。設成列表就能自行指定寬度。訓練會把實際建出的寬度寫進 run 的 `config.yaml`，即使之後的版本改了預設值，舊的 run 仍能載入。
 
@@ -207,6 +209,40 @@ model:
 訓練不足的頻譜模型還沒學會音量，所以輸出又大聲又錯；訓練不足的遮罩模型已經有用，因為它最糟也只是保留或去掉原本就有的東西。oracle 那一列是這個目標所追求的上限。
 
 這是小模型配小語料，不是基準測試——但它把「為什麼通常選遮罩目標」在大約二十秒內具體呈現出來。
+
+`gtcrn` 一律輸出複數遮罩，不讀 `model.target`。
+
+### 波形路徑：`gtcrn`
+
+`gtcrn` 的訓練方式和另外五個不同。它讀含噪的複數頻譜、輸出複數比值遮罩，所以給回來的相位是它自己估的；它從波形學，每個 epoch 從每一對檔案重新切一段；損失算在它輸出的頻譜和該頻譜還原的波形上，所以不需要擬合正規化統計量。GTCRN 自己的 STFT，加上論文給 VoiceBank-DEMAND 的設定，寫成設定檔是這樣：
+
+```yaml
+audio:
+  sr: 16000
+  n_fft: 512
+  hop_length: 256
+  win_length: 512
+  window: sqrt_hann         # Hann 窗開根號，分析與合成都用它
+  pad_mode: reflect         # torch.stft 補兩端的方式，GTCRN 的做法
+  compress: null            # 模型看到的是線性尺度的頻譜
+data:
+  prepared: data/vbd16k
+  crop_seconds: 2.0         # 每個 epoch 在每對檔案的新位置切這麼長
+model:
+  name: gtcrn               # units: [16]，論文的通道數
+train:
+  batch_size: 4
+  learning_rate: 0.001
+  patience: 10              # 5 個 epoch 沒進步時學習率減半
+  grad_clip: 3.0            # 梯度範數上限；null 不裁剪
+  num_workers: 2            # 讀檔與切段的行程數
+```
+
+沒寫 `loss` 段時，損失就是 GTCRN repo 裡的那一個：壓縮到 `|S|^0.3`、保留相位的頻譜 MSE 乘 30，壓縮後幅度的 MSE 乘 70，再加 0.1 倍以 dB 計的負 SI-SNR，算 SI-SNR 前不去均值。這一段的鍵 `complex_mse`、`magnitude_mse`、`time_l1`、`neg_si_snr`、`compress`、`zero_mean` 可以改權重、指數和去均值與否。
+
+這條路徑的 run 在第一個 epoch 之前寫 `config.yaml`，之後每個 epoch 寫目前最好的權重、`resume.pt`、`history.json` 和 `progress.json`。中途停掉的話，同一行指令加 `--resume` 就從最後一個跑完的 epoch 接著跑；只要 torch 的執行緒數相同，在 CPU 上續跑的結果和沒中斷過的逐位元相同。`--resume --epochs N` 可以延長已經跑完的 run。續跑時只有 `train.epochs`、`train.patience`、`train.num_workers`、`train.device`、`train.out_dir` 可以改，其他的改了會被拒絕並列出是哪些鍵，因為那已經是另一個 run。`progress.json` 寫著 run 跑到哪：epoch、損失和各項、目前最好的 epoch、學習率、每個 epoch 的秒數和剩餘時間。還在訓練的 run 就能拿去 evaluate 或降噪，用的是目前最好的那個 epoch。
+
+`Enhancer` 對 30 秒以內的檔案一次處理完。更長的檔案切成 30 秒、彼此重疊 1 秒的段，在接縫處交叉淡化，所以檔案再長，記憶體用量都有上限。
 
 ## 房間
 
@@ -335,8 +371,9 @@ kudio.compare_enhancers(y, sr, ['logmmse', ('exp1', enh.enhance)],
 runs/exp1/
 ├── config.yaml      # 訓練時的實驗設定
 ├── ddae.pt          # 權重：<model.name>.pt
-├── stats.npz        # 特徵經過的 Standardizer
+├── stats.npz        # 特徵經過的 Standardizer（gtcrn 沒有）
 ├── history.json     # 訓練曲線（有 matplotlib 時另有 history.png）
+├── resume.pt  progress.json   # gtcrn：最近一個 epoch 的狀態，以及 run 跑到哪
 ├── train.json  val.json  test.json  manifest.json
 ├── enhanced/        # evaluate 之後產生：模型輸出的測試集
 ├── report.csv       # 逐檔分數
@@ -368,7 +405,8 @@ src/kudioenhance/
 │   ├── recurrent.py     # blstm
 │   ├── convolutional.py # conv_ae
 │   ├── crn.py           # crn
-│   └── unet.py          # unet
+│   ├── unet.py          # unet
+│   └── gtcrn.py         # gtcrn
 ├── train.py         # 訓練迴圈：Adam、檢查點、提早停止
 ├── waveform_train.py # 波形路徑的訓練迴圈，中斷了能從停下的地方接著跑
 ├── progress.py      # 每個 epoch 重寫的 progress.json 與 history.json
@@ -392,15 +430,16 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-共 434 個測試。測試套件會在暫存目錄建立一個很小的合成語料，並在幾秒內跑完整個流程——混音、訓練一個 epoch、增強、評分。需要 PyTorch 的測試會明確要求它，沒安裝時會乾淨地跳過；其餘 173 個仍會執行。
+共 471 個測試。測試套件會在暫存目錄建立一個很小的合成語料，並在幾秒內跑完整個流程——混音、訓練一個 epoch、增強、評分。需要 PyTorch 的測試會明確要求它，沒安裝時會乾淨地跳過；其餘 178 個仍會執行。
 
-遮罩測試檢查的是*公式*，而不只是能不能跑：全是語音時為 1、全是噪音時為 0、功率相等時為 1/√2，而 oracle 遮罩必須真的提升 SI-SDR。這些不成立，就代表目標是錯的，不管損失曲線怎麼說。架構測試也一樣：改動 *t* 之後的任何一幀，`crn` 到 *t* 為止的輸出必須逐位元不變；`unet` 的則必須改變，因為它的說明寫著它是非因果的。訓練集也是：記憶體模式必須逐位元交回堆疊矩陣的列，依 manifest 順序的串流掃描也是，而一個打亂的 epoch 必須讓每個樣本恰好出現一次，並且在相同 seed 下得到相同順序。兩種模式必須以逐位元相同的統計量做正規化。
+遮罩測試檢查的是*公式*，而不只是能不能跑：全是語音時為 1、全是噪音時為 0、功率相等時為 1/√2，而 oracle 遮罩必須真的提升 SI-SDR。這些不成立，就代表目標是錯的，不管損失曲線怎麼說。架構測試也一樣：改動 *t* 之後的任何一幀，`crn` 到 *t* 為止的輸出必須逐位元不變；`unet` 的則必須改變，因為它的說明寫著它是非因果的。`gtcrn` 也用同樣的測試確認不往後看，它的權重逐層數、要等於論文的 23,669，乘加次數逐幀數。訓練集也是：記憶體模式必須逐位元交回堆疊矩陣的列，依 manifest 順序的串流掃描也是，而一個打亂的 epoch 必須讓每個樣本恰好出現一次，並且在相同 seed 下得到相同順序。兩種模式必須以逐位元相同的統計量做正規化。
 
 ## 已知限制
 
-- 串流的 epoch 由訓練行程在批次之間逐一讀取並轉換檔案。沒有 loader 工作行程，所以 GPU 可能會等 CPU；記憶體模式只需付出一次這個成本。
-- 只處理幅度：相位沿用含噪輸入的相位。考慮相位或時域的模型屬於另一個架構家族。
-- 序列模型一次處理整個檔案。對 `crn` 和 `unet` 而言，這代表每一幀、每個頻率點、每個通道都有一張特徵圖：在預設寬度下，每分鐘 16 kHz 音訊約需半 GB，所以長錄音請先切段再增強。
+- log-power 路徑串流的 epoch 由訓練行程在批次之間逐一讀取並轉換檔案。沒有 loader 工作行程，所以 GPU 可能會等 CPU；記憶體模式只需付出一次這個成本。波形路徑則由 `train.num_workers` 個行程讀檔切段。
+- log-power 模型只處理幅度，相位沿用含噪輸入的相位。`gtcrn` 估的是複數遮罩；時域模型不在這個套件裡。
+- log-power 的序列模型一次處理整個檔案。對 `crn` 和 `unet` 而言，這代表每一幀、每個頻率點、每個通道都有一張特徵圖：在預設寬度下，每分鐘 16 kHz 音訊約需半 GB，所以長錄音請先切段再增強。
+- `gtcrn` 的 GRU 在每一段 30 秒的開頭都從零狀態開始，重疊 1 秒沒辦法完全蓋掉這一點。用只訓練了幾個短 epoch 的權重量 45 秒的檔案，接縫之後 3 秒內，分段輸出和整檔輸出差了約 1% 的 RMS。最後一段用靜音補到整段長，整檔的 STFT 則是在結尾鏡射訊號，所以長檔案最後約 32 ms 差得更多。
 - `irm` 目標需要噪音，並在時域中以 `noisy - reference` 取得。對 `kudio.Synthesizer` 混出來的資料這是精確的，但若語料的 noisy 與 clean 是分開的兩段錄音而不是相加而成，就是錯的。在含殘響的資料集中，reference 必須是含殘響的目標，否則房間的殘響尾巴會被算成噪音——見上面的 `reverberant_target`。
 
 ### 0.2.0 起的變更

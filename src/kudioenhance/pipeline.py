@@ -103,6 +103,7 @@ def train(cfg: Config, name: str, *, epochs: Optional[int] = None,
     )
     from kudioenhance.train import (
         check_batch_size,
+        check_no_clipping,
         fit,
         plot_history,
         save_history,
@@ -117,6 +118,7 @@ def train(cfg: Config, name: str, *, epochs: Optional[int] = None,
         raise ValueError(
             f"{cfg.model.name} trains on the log-power path, which cannot "
             f"resume: train it again from the start")
+    check_no_clipping(cfg)
     cfg = resolve_units(cfg)
     # before the training set is built, which can be a pass over the audio
     check_batch_size(cfg)
@@ -260,13 +262,18 @@ def run(cfg: Config, name: str, *, epochs: Optional[int] = None,
     :raises FileExistsError: for a run of the waveform path that has started
         already, before anything is mixed over its splits; carry on with it
         through :func:`train` and ``resume=True``.
+    :raises ValueError: for ``train.grad_clip`` on the log-power path, also
+        before anything is mixed.
     """
     from kudioenhance.models import is_waveform
+    from kudioenhance.train import check_no_clipping
     if is_waveform(cfg.model.name) and cfg.resume_path(name).is_file():
         raise FileExistsError(
             f"{cfg.run_dir(name)} holds a run already "
             f"({cfg.resume_path(name).name}); resume it with train, or pick "
             f"another name")
+    if not is_waveform(cfg.model.name):
+        check_no_clipping(cfg)
     if not cfg.data.prepared:
         synthesize(cfg, name)
     train(cfg, name, epochs=epochs, verbose=verbose)

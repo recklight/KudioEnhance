@@ -20,10 +20,12 @@ The figure is a link to an interactive version — [open it online](https://raw.
 Each stage reads what the one before it wrote, so you can re-train without
 re-mixing and re-evaluate without re-training. `run` does all three in order.
 
-Models work in the **log-power spectrogram domain** and reuse the noisy phase —
-the standard magnitude-only enhancement setup. Feature extraction and
-reconstruction both go through `kudio`, so what the model sees is exactly what
-any other kudio-based tool produces.
+Five of the models work in the **log-power spectrogram domain** and reuse the
+noisy phase — the standard magnitude-only enhancement setup. Feature
+extraction and reconstruction both go through `kudio`, so what the model sees
+is exactly what any other kudio-based tool produces. The sixth, `gtcrn`, puts
+out a complex mask and is trained on waveforms; see
+[The waveform path](#the-waveform-path-gtcrn).
 
 ## Install
 
@@ -179,7 +181,7 @@ data:
   test_split: 0.1
 
 model:
-  name: ddae                # ddae | blstm | conv_ae | crn | unet
+  name: ddae                # ddae | blstm | conv_ae | crn | unet | gtcrn
   target: spectrum          # spectrum | irm  -- see "What the network is asked to produce"
   context: 2                # frame-wise models: ±frames stacked into the input
   n_frames: 64              # sequence models: frames per training window
@@ -200,6 +202,8 @@ train:
 
 Every key is a typed dataclass field. A typo fails at load time and names the
 offending key — it does not silently fall back to a default three stages later.
+`gtcrn` has a few keys of its own and a `loss` section, listed under
+[The waveform path](#the-waveform-path-gtcrn).
 
 ## Models
 
@@ -208,11 +212,12 @@ kudioenhance models
 ```
 
 ```
-blstm       stacked bidirectional LSTM (Erdogan et al. 2015)                         units: [1024, 1024, 1024]
-conv_ae     dilated Conv1D autoencoder, residual (after Tan et al. 2019)             units: [1024, 1024, 1024]
-crn         causal conv-recurrent network (Tan & Wang 2018)                          units: [16, 32, 64, 64, 64]
-ddae        dense denoising autoencoder, frame-wise (Xu et al. 2015)                 units: [1024, 1024, 1024]
-unet        2-D U-Net over time and frequency, non-causal (Ronneberger et al. 2015)  units: [16, 32, 64, 128]
+blstm       stacked bidirectional LSTM (Erdogan et al. 2015)                                  units: [1024, 1024, 1024]
+conv_ae     dilated Conv1D autoencoder, residual (after Tan et al. 2019)                      units: [1024, 1024, 1024]
+crn         causal conv-recurrent network (Tan & Wang 2018)                                   units: [16, 32, 64, 64, 64]
+ddae        dense denoising autoencoder, frame-wise (Xu et al. 2015)                          units: [1024, 1024, 1024]
+gtcrn       grouped temporal conv-recurrent network, causal, complex mask (Rong et al. 2024)  units: [16]
+unet        2-D U-Net over time and frequency, non-causal (Ronneberger et al. 2015)           units: [16, 32, 64, 128]
 ```
 
 | Name | Input layout | Causal | What it is, and when to choose it |
@@ -221,7 +226,8 @@ unet        2-D U-Net over time and frequency, non-causal (Ronneberger et al. 20
 | `blstm` | `(N, n_frames, bins)` | no | Stacked bidirectional LSTM, as in Erdogan et al., *Phase-sensitive and recognition-boosted speech separation using deep recurrent neural networks* (ICASSP 2015). Temporal context in both directions. |
 | `conv_ae` | `(N, n_frames, bins)` | no | Dilated Conv1D autoencoder with a residual connection — starts from "pass the signal through" rather than from noise. The convolutions along time are a cut-down form of Tan, Chen & Wang, *Gated residual networks with dilated convolutions for monaural speech enhancement* (IEEE/ACM TASLP 2019), without its 2-D front end or its gates; the doubling dilation is Yu & Koltun's (ICLR 2016). |
 | `crn` | `(N, n_frames, bins)` | **yes** | Convolutional recurrent network after Tan & Wang, *A convolutional recurrent neural network for real-time speech enhancement* (Interspeech 2018): a strided 2-D convolutional encoder over time and frequency, an LSTM over time, and a mirrored decoder that takes each encoder layer's output back in. Choose it when the output must not wait for what comes next. |
-| `unet` | `(N, n_frames, bins)` | no — about 50 frames ahead | 2-D U-Net over time and frequency, after Ronneberger et al., *U-Net: Convolutional networks for biomedical image segmentation* (MICCAI 2015), on a spectrogram with a mask out as in Jansson et al., *Singing voice separation with deep U-Net convolutional networks* (ISMIR 2017): convolution blocks, halving both axes on the way down, skip connections on the way back up. Choose it for offline enhancement of whole files; at about half a million parameters it is also the smallest model here at the default widths. |
+| `unet` | `(N, n_frames, bins)` | no — about 50 frames ahead | 2-D U-Net over time and frequency, after Ronneberger et al., *U-Net: Convolutional networks for biomedical image segmentation* (MICCAI 2015), on a spectrogram with a mask out as in Jansson et al., *Singing voice separation with deep U-Net convolutional networks* (ISMIR 2017): convolution blocks, halving both axes on the way down, skip connections on the way back up. Choose it for offline enhancement of whole files; at about half a million parameters it is the smallest log-power model here at the default widths. |
+| `gtcrn` | complex spectrum `(N, bins, frames)` | **yes** | GTCRN after Rong et al., *GTCRN: A speech enhancement model requiring ultralow computational resources* (ICASSP 2024): low bins kept and high ones folded into ERB bands, grouped temporal convolutions with a recurrent attention, a grouped dual-path GRU network, and a complex ratio mask. 23,669 weights and 26.3M multiply-accumulates per second of 16 kHz audio. Choose it when compute is scarce, or when the phase has to be estimated too. |
 
 Sequence models are trained on fixed-length windows, but nothing in them
 fixes the length of the time axis, so the same weights enhance a whole
@@ -229,10 +235,11 @@ utterance in one pass. The two 2-D models also take any `n_fft`: they pad
 time and frequency internally as far as their halvings need, and crop back.
 
 **Causal** means the output for a frame depends on that frame and earlier
-ones only — the convolutions in `crn` are padded on the past side, its LSTM
-runs forwards, and a test holds it to that. It is what a real-time port
-needs, but this package does not stream: `Enhancer` still enhances a whole
-file at once, and the STFT adds a window of latency of its own.
+ones only — the convolutions in `crn` and `gtcrn` are padded on the past
+side, their recurrent layers along time run forwards, and tests hold both to
+that. It is what a real-time port needs, but this package does not stream:
+`Enhancer` enhances a whole file at once, or a long one 30 s at a time on
+the waveform path, and the STFT adds a window of latency of its own.
 
 **`model.units`** is the list of layer widths: a dense layer's units, an
 LSTM's, a convolution's filters or channels. Left as `null` it takes the
@@ -289,6 +296,64 @@ the ceiling this target aims at.
 
 That is a tiny model on a tiny corpus, not a benchmark — but it is the reason
 mask targets are the usual choice, made visible in about twenty seconds.
+
+`gtcrn` always puts out a complex mask and does not read `model.target`.
+
+### The waveform path: `gtcrn`
+
+`gtcrn` trains differently from the other five. It reads the noisy complex
+spectrum and puts out a complex ratio mask, so the phase it gives back is its
+own; it learns from waveforms, a fresh crop of every pair each epoch; and its
+loss is taken on the spectrum it puts out and on that spectrum's waveform, so
+no normalisation statistics are fitted. GTCRN's own STFT and the settings its
+paper gives for VoiceBank-DEMAND look like this:
+
+```yaml
+audio:
+  sr: 16000
+  n_fft: 512
+  hop_length: 256
+  win_length: 512
+  window: sqrt_hann         # the square root of Hann, for analysis and synthesis
+  pad_mode: reflect         # how torch.stft pads the two ends, GTCRN's choice
+  compress: null            # the model sees the spectrum on the linear scale
+data:
+  prepared: data/vbd16k
+  crop_seconds: 2.0         # cut from every pair at a fresh place each epoch
+model:
+  name: gtcrn               # units: [16], the paper's channel count
+train:
+  batch_size: 4
+  learning_rate: 0.001
+  patience: 10              # the rate halves after 5 epochs without progress
+  grad_clip: 3.0            # largest gradient norm; null does not clip
+  num_workers: 2            # processes that read and crop the audio
+```
+
+Without a `loss` section the loss is the one in GTCRN's repository: 30 times
+the MSE of the spectrum compressed to `|S|^0.3` with its phase, 70 times the
+MSE of the compressed magnitude, and 0.1 times the negative SI-SNR in dB,
+taken without removing the mean. The section's keys, `complex_mse`,
+`magnitude_mse`, `time_l1`, `neg_si_snr`, `compress` and `zero_mean`, change
+the weights, the exponent and the mean.
+
+A run of this path writes `config.yaml` before its first epoch and, after
+every epoch, the best weights so far, `resume.pt`, `history.json` and
+`progress.json`. If it is stopped, the same command with `--resume` carries
+on from the last epoch that finished, and on the CPU the resumed run is the
+uninterrupted one to the last bit, as long as torch runs with the same
+number of threads. `--resume --epochs N` extends a run that finished. Only
+`train.epochs`, `train.patience`, `train.num_workers`, `train.device` and
+`train.out_dir` may change on resume; anything else is refused with the keys
+named, since it would be a different run. `progress.json` says where a run
+stands: the epoch, the loss and each of its terms, the best epoch so far, the
+learning rate, the seconds per epoch and the time left. A run that is still
+training can already be evaluated or used to denoise; what it gives is its
+best epoch so far.
+
+`Enhancer` enhances a file of up to 30 s in one pass. A longer one is cut
+into chunks of 30 s that overlap by 1 s, cross-faded where they meet, so
+memory stays bounded whatever the length.
 
 ## Rooms
 
@@ -499,8 +564,9 @@ silently disagree with training.
 runs/exp1/
 ├── config.yaml      # the experiment, as it was trained
 ├── ddae.pt          # the weights: <model.name>.pt
-├── stats.npz        # the Standardizer the features went through
+├── stats.npz        # the Standardizer the features went through (not for gtcrn)
 ├── history.json     # the curves (and history.png with matplotlib)
+├── resume.pt  progress.json   # gtcrn: the latest epoch's state, and where the run stands
 ├── train.json  val.json  test.json  manifest.json
 ├── enhanced/        # after evaluate: the test split, as the model put it out
 ├── report.csv       # per-file scores
@@ -541,7 +607,8 @@ src/kudioenhance/
 │   ├── recurrent.py     # blstm
 │   ├── convolutional.py # conv_ae
 │   ├── crn.py           # crn
-│   └── unet.py          # unet
+│   ├── unet.py          # unet
+│   └── gtcrn.py         # gtcrn
 ├── train.py         # the training loop: Adam, checkpoints, early stopping
 ├── waveform_train.py # the waveform path's loop, which resumes where it stopped
 ├── progress.py      # progress.json and history.json, rewritten every epoch
@@ -567,17 +634,20 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-434 tests. The suite builds a tiny synthetic corpus in a temp directory and runs
+471 tests. The suite builds a tiny synthetic corpus in a temp directory and runs
 the whole pipeline — mix, train one epoch, enhance, score — in seconds. Tests
 that need PyTorch ask for it by name and skip cleanly when it is not
-installed; the other 173 still run.
+installed; the other 178 still run.
 
 The mask tests check the *formula*, not just that it runs: all-speech gives 1,
 all-noise gives 0, equal power gives 1/√2, and an oracle mask has to actually
 improve SI-SDR. Those hold or the target is wrong, whatever the loss curve
 says. The architecture tests work the same way: change any frame after *t*
 and `crn`'s output up to *t* has to stay the same bit for bit, while
-`unet`'s has to move, because its description says it is non-causal. And the
+`unet`'s has to move, because its description says it is non-causal. The
+same holds `gtcrn` to no look-ahead, and its weights are counted layer by
+layer against the paper's 23,669, its multiply-accumulates frame by frame.
+And the
 training sets: the in-memory one has to hand back the stacked matrix's rows
 bit for bit, so does a streamed pass in manifest order, and a shuffled epoch
 has to be every example exactly once, in the same order again from the same
@@ -585,15 +655,23 @@ seed. The two modes have to normalise with the same statistics, to the bit.
 
 ## Known limits
 
-- A streamed epoch reads and transforms its files in the training process,
-  one at a time, between batches. There are no loader worker processes, so a
-  GPU can end up waiting on the CPU; an in-memory run pays that cost once.
-- Magnitude-only enhancement: the phase is the noisy input's. Phase-aware or
-  time-domain models are a different architecture family.
-- Sequence models enhance a whole file in one pass. For `crn` and `unet` that
-  means a feature map per channel per bin for every frame: about half a
-  gigabyte per minute of 16 kHz audio at the default widths, so split long
-  recordings before enhancing them.
+- A streamed epoch of the log-power path reads and transforms its files in
+  the training process, one at a time, between batches. It has no loader
+  worker processes, so a GPU can end up waiting on the CPU; an in-memory run
+  pays that cost once. The waveform path reads its crops in
+  `train.num_workers` processes.
+- The log-power models enhance the magnitude only, and the phase is the noisy
+  input's. `gtcrn` estimates a complex mask; time-domain models are not here.
+- The log-power sequence models enhance a whole file in one pass. For `crn`
+  and `unet` that means a feature map per channel per bin for every frame:
+  about half a gigabyte per minute of 16 kHz audio at the default widths, so
+  split long recordings before enhancing them.
+- `gtcrn`'s GRUs start every 30 s chunk from rest, and 1 s of overlap does
+  not hide that entirely. On a 45 s file, with weights trained for a few
+  short epochs, the chunked output differed from the whole file's by about 1%
+  of its RMS for the 3 s after the seam. The last chunk is padded with
+  silence to its full length, where the whole file's STFT mirrors the signal
+  at its end, so the last 32 ms or so of a long file differ more.
 - The `irm` target needs the noise, and takes it as `noisy - reference` in the
   time domain. That is exact for anything `kudio.Synthesizer` mixed, and wrong
   for a corpus whose noisy and clean files are separate recordings rather than

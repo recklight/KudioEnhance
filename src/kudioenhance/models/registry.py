@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 
 __all__ = ["ModelSpec", "REGISTRY", "list_models", "is_sequence",
            "is_waveform", "default_units", "resolve_units", "build_model",
-           "count_params", "model_bibtex"]
+           "count_params", "count_macs", "model_bibtex"]
 
 
 @dataclass(frozen=True)
@@ -97,6 +97,14 @@ def _unet(cfg: Config):
                       mask=cfg.model.predicts_mask)
 
 
+def _gtcrn(cfg: Config):
+    from kudioenhance.models.gtcrn import build_gtcrn
+    # n_fft // 2 + 1 rather than cfg.audio.n_bins, which asks kudio's STFT,
+    # and kudio has no sqrt_hann window
+    return build_gtcrn(n_bins=cfg.audio.n_fft // 2 + 1, sr=cfg.audio.sr,
+                       units=cfg.model.units)
+
+
 # The works each architecture follows, checked against the publisher's or
 # ISCA's record. ddae maps a context window to one frame as Xu et al. do, and
 # takes its name from Lu et al., whose autoencoder maps a patch of frames to a
@@ -106,7 +114,8 @@ def _unet(cfg: Config):
 # over STFT magnitudes with a doubling dilation, after Yu & Koltun, and drops
 # its 2-D front end, the gates and the repeated schedule. unet is
 # Ronneberger et al.'s layout, put on a spectrogram with a mask out as Jansson
-# et al. do; their U-Net strides instead of pooling.
+# et al. do; their U-Net strides instead of pooling. gtcrn is Rong et al.'s
+# network, with what the paper leaves open taken from the authors' code.
 _LU_2013 = """@inproceedings{lu2013ddae,
   author = {X. Lu and Y. Tsao and S. Matsuda and C. Hori},
   title = {Speech enhancement based on deep denoising autoencoder},
@@ -187,6 +196,17 @@ _JANSSON_2017 = """@inproceedings{jansson2017unet,
 }
 """
 
+_RONG_2024 = """@inproceedings{rong2024gtcrn,
+  author = {X. Rong and T. Sun and X. Zhang and Y. Hu and C. Zhu and J. Lu},
+  title = {{GTCRN}: A speech enhancement model requiring ultralow
+           computational resources},
+  booktitle = {Proc. ICASSP},
+  pages = {971--975},
+  year = {2024},
+  doi = {10.1109/ICASSP48485.2024.10448310},
+}
+"""
+
 REGISTRY: Dict[str, ModelSpec] = {
     "ddae": ModelSpec(_ddae, sequence=False,
                       description="dense denoising autoencoder, frame-wise "
@@ -219,6 +239,14 @@ REGISTRY: Dict[str, ModelSpec] = {
                       description="2-D U-Net over time and frequency, "
                                   "non-causal (Ronneberger et al. 2015)",
                       references=(_RONNEBERGER_2015, _JANSSON_2017)),
+    # The paper's width; at 257 bins that is 23,669 weights and 26.3M
+    # multiply-accumulates a second (tests/test_gtcrn.py counts both layer by
+    # layer).
+    "gtcrn": ModelSpec(_gtcrn, sequence=True, waveform=True,
+                       default_units=(16,),
+                       description="grouped temporal conv-recurrent network, "
+                                   "causal, complex mask (Rong et al. 2024)",
+                       references=(_RONG_2024,)),
 }
 
 
@@ -306,3 +334,39 @@ def count_params(model) -> int:
     weights, and reported a slightly larger number for the same network.
     """
     return sum(param.numel() for param in model.parameters())
+
+
+def count_macs(model, *inputs) -> int:
+    """Multiply-accumulates of one forward pass of *model* on *inputs*.
+
+    What torch's ``FlopCounterMode`` counts, at two FLOPs a
+    multiply-accumulate: the matrix products and convolutions, and whatever
+    multiplies by a buffer, such as GTCRN's ERB filters. Biases,
+    normalisation, activations and other elementwise arithmetic are left
+    out, so ptflops, which counts those too, reports more for the same
+    network: 33.0M for GTCRN on one second, where this counts 26.5M.
+
+    The count runs on a copy of *model*, on the CPU, in eval mode, without a
+    graph and with oneDNN off. oneDNN runs an LSTM as one fused operation
+    the counter has no formula for, and so does cuDNN for any recurrent
+    layer; on the CPU without oneDNN, every step of a GRU or an LSTM is a
+    pair of matrix products and is counted. *model* itself is left as it was,
+    modes and device included.
+    """
+    import copy
+
+    import torch
+    from torch.utils.flop_counter import FlopCounterMode
+
+    probe = copy.deepcopy(model).cpu().eval()
+    inputs = [x.cpu() if isinstance(x, torch.Tensor) else x for x in inputs]
+    # the property rather than mkldnn.flags(), which also sets TF32 and
+    # warns about Intel GPUs on every call
+    onednn = torch.backends.mkldnn.enabled
+    torch.backends.mkldnn.enabled = False
+    try:
+        with torch.no_grad(), FlopCounterMode(display=False) as counter:
+            probe(*inputs)
+    finally:
+        torch.backends.mkldnn.enabled = onednn
+    return counter.get_total_flops() // 2

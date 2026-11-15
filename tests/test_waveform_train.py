@@ -182,6 +182,36 @@ def test_without_validation_the_training_loss_is_watched(tmp_path, pairs):
     assert report["val_loss"] is None and report["val_terms"] is None
 
 
+def test_gradients_are_clipped_to_the_norm_asked_for(tmp_path, pairs,
+                                                     monkeypatch):
+    """Once a batch, after the backward pass and before the step; and not at
+    all when train.grad_clip is unset."""
+    real_clip, real_step = torch.nn.utils.clip_grad_norm_, torch.optim.Adam.step
+    norms, events = [], []
+
+    def clip(parameters, max_norm, **kwargs):
+        parameters = list(parameters)
+        real_clip(parameters, max_norm, **kwargs)
+        events.append("clip")
+        norms.append((max_norm, float(torch.linalg.vector_norm(torch.stack(
+            [torch.linalg.vector_norm(p.grad) for p in parameters])))))
+
+    def step(self, *args, **kwargs):
+        events.append("step")
+        return real_step(self, *args, **kwargs)
+
+    monkeypatch.setattr(torch.nn.utils, "clip_grad_norm_", clip)
+    monkeypatch.setattr(torch.optim.Adam, "step", step)
+    _fit(_config(tmp_path, epochs=1, grad_clip=1e-3), pairs, tmp_path / "a")
+    assert events == ["clip", "step"] * 3         # 6 crops, batches of 2
+    assert all(max_norm == 1e-3 and norm <= 1e-3 * (1 + 1e-5)
+               for max_norm, norm in norms)
+
+    events.clear()
+    _fit(_config(tmp_path, epochs=1), pairs, tmp_path / "b")
+    assert events == ["step"] * 3
+
+
 def test_the_callers_random_state_is_left_alone(tmp_path, pairs,
                                                 monkeypatch):
     torch.manual_seed(123)
@@ -595,6 +625,22 @@ def test_run_does_not_mix_over_a_run_in_progress(waveform_config):
 def test_the_log_power_path_cannot_resume(config):
     with pytest.raises(ValueError, match="cannot resume"):
         pipeline.train(config, "exp1", resume=True)
+
+
+def test_the_log_power_path_refuses_to_clip_rather_than_ignore_it(config,
+                                                                  tmp_path):
+    """Its loop, the training stage, and run before it mixes anything."""
+    from kudioenhance.train import fit
+
+    config.train.grad_clip = 3.0
+    with pytest.raises(ValueError, match="does not clip"):
+        fit(build_model(config), np.zeros((4, 3), np.float32),
+            np.zeros((4, 3), np.float32), config, tmp_path / "m.pt")
+    with pytest.raises(ValueError, match="does not clip"):
+        pipeline.train(config, "exp1")
+    with pytest.raises(ValueError, match="does not clip"):
+        pipeline.run(config, "exp1")
+    assert not os.path.exists(config.data.mixed_dir)
 
 
 def test_train_resume_on_the_command_line(tmp_path, waveform_config,

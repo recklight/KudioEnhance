@@ -10,6 +10,7 @@ from kudioenhance.models.registry import (
     REGISTRY,
     ModelSpec,
     build_model,
+    count_macs,
     count_params,
     default_units,
     is_sequence,
@@ -19,6 +20,6 @@ from kudioenhance.models.registry import (
     resolve_units,
 )
 
-__all__ = ["REGISTRY", "ModelSpec", "build_model", "count_params",
-           "default_units", "is_sequence", "is_waveform", "list_models",
-           "model_bibtex", "resolve_units"]
+__all__ = ["REGISTRY", "ModelSpec", "build_model", "count_macs",
+           "count_params", "default_units", "is_sequence", "is_waveform",
+           "list_models", "model_bibtex", "resolve_units"]
