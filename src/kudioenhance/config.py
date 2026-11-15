@@ -482,3 +482,15 @@ class Config:
     def history_path(self, name: str) -> Path:
         """Where the training curves land. See :func:`kudioenhance.save_history`."""
         return self.run_dir(name) / "history.json"
+
+    def progress_path(self, name: str) -> Path:
+        """What a waveform-path run says about itself after every epoch. See
+        :mod:`kudioenhance.progress`."""
+        from kudioenhance.progress import PROGRESS_FILE
+        return self.run_dir(name) / PROGRESS_FILE
+
+    def resume_path(self, name: str) -> Path:
+        """What ``train --resume`` carries on from. See
+        :mod:`kudioenhance.waveform_train`."""
+        from kudioenhance.progress import RESUME_FILE
+        return self.run_dir(name) / RESUME_FILE

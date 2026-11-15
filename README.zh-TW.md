@@ -370,7 +370,9 @@ src/kudioenhance/
 │   ├── crn.py           # crn
 │   └── unet.py          # unet
 ├── train.py         # 訓練迴圈：Adam、檢查點、提早停止
-├── checkpoint.py    # .pt 格式
+├── waveform_train.py # 波形路徑的訓練迴圈，中斷了能從停下的地方接著跑
+├── progress.py      # 每個 epoch 重寫的 progress.json 與 history.json
+├── checkpoint.py    # .pt 格式：權重，以及 run 的訓練狀態
 ├── inference.py     # Enhancer
 ├── evaluate.py      # 測試集交給 kudio.score_dataset，產生結果表
 ├── pipeline.py      # 三個階段
@@ -390,7 +392,7 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-共 382 個測試。測試套件會在暫存目錄建立一個很小的合成語料，並在幾秒內跑完整個流程——混音、訓練一個 epoch、增強、評分。需要 PyTorch 的測試會明確要求它，沒安裝時會乾淨地跳過；其餘 167 個仍會執行。
+共 434 個測試。測試套件會在暫存目錄建立一個很小的合成語料，並在幾秒內跑完整個流程——混音、訓練一個 epoch、增強、評分。需要 PyTorch 的測試會明確要求它，沒安裝時會乾淨地跳過；其餘 173 個仍會執行。
 
 遮罩測試檢查的是*公式*，而不只是能不能跑：全是語音時為 1、全是噪音時為 0、功率相等時為 1/√2，而 oracle 遮罩必須真的提升 SI-SDR。這些不成立，就代表目標是錯的，不管損失曲線怎麼說。架構測試也一樣：改動 *t* 之後的任何一幀，`crn` 到 *t* 為止的輸出必須逐位元不變；`unet` 的則必須改變，因為它的說明寫著它是非因果的。訓練集也是：記憶體模式必須逐位元交回堆疊矩陣的列，依 manifest 順序的串流掃描也是，而一個打亂的 epoch 必須讓每個樣本恰好出現一次，並且在相同 seed 下得到相同順序。兩種模式必須以逐位元相同的統計量做正規化。
 

@@ -13,11 +13,12 @@ from kudioenhance.models.registry import (
     count_params,
     default_units,
     is_sequence,
+    is_waveform,
     list_models,
     model_bibtex,
     resolve_units,
 )
 
 __all__ = ["REGISTRY", "ModelSpec", "build_model", "count_params",
-           "default_units", "is_sequence", "list_models", "model_bibtex",
-           "resolve_units"]
+           "default_units", "is_sequence", "is_waveform", "list_models",
+           "model_bibtex", "resolve_units"]

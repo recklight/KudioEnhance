@@ -50,7 +50,7 @@ from kudioenhance.config import LossConfig
 from kudioenhance.spectral import EPS, ComplexSTFT, compress_magnitude
 
 __all__ = ["complex_mse", "magnitude_mse", "time_l1", "neg_si_snr",
-           "loss_terms", "hybrid_loss"]
+           "loss_terms", "weighted_sum", "hybrid_loss"]
 
 #: What keeps SI-SNR finite on silence, in the projection and in the ratio.
 SI_SNR_EPS = 1e-8
@@ -223,5 +223,14 @@ def hybrid_loss(estimate: torch.Tensor, reference: torch.Tensor,
     Tashev's (2021) mix scaled by 100, when *stft* is GTCRN's as well: 512
     points, a hop of 256, ``sqrt_hann`` and ``pad_mode="reflect"``.
     """
-    terms = loss_terms(estimate, reference, stft, weights)
+    return weighted_sum(loss_terms(estimate, reference, stft, weights),
+                        weights)
+
+
+def weighted_sum(terms: Dict[str, torch.Tensor],
+                 weights: LossConfig) -> torch.Tensor:
+    """*terms* as :func:`loss_terms` returns them, each times its weight,
+    added in that order: :func:`hybrid_loss` from terms already computed,
+    to the last bit, so a trainer that logs the terms need not compute them
+    twice."""
     return sum(getattr(weights, name) * value for name, value in terms.items())

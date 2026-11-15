@@ -543,7 +543,9 @@ src/kudioenhance/
 │   ├── crn.py           # crn
 │   └── unet.py          # unet
 ├── train.py         # the training loop: Adam, checkpoints, early stopping
-├── checkpoint.py    # the .pt format
+├── waveform_train.py # the waveform path's loop, which resumes where it stopped
+├── progress.py      # progress.json and history.json, rewritten every epoch
+├── checkpoint.py    # the .pt formats: weights, and a run's training state
 ├── inference.py     # Enhancer
 ├── evaluate.py      # the test split through kudio.score_dataset, the table
 ├── pipeline.py      # the three stages
@@ -565,10 +567,10 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-382 tests. The suite builds a tiny synthetic corpus in a temp directory and runs
+434 tests. The suite builds a tiny synthetic corpus in a temp directory and runs
 the whole pipeline — mix, train one epoch, enhance, score — in seconds. Tests
 that need PyTorch ask for it by name and skip cleanly when it is not
-installed; the other 167 still run.
+installed; the other 173 still run.
 
 The mask tests check the *formula*, not just that it runs: all-speech gives 1,
 all-noise gives 0, equal power gives 1/√2, and an oracle mask has to actually

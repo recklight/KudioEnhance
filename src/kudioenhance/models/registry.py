@@ -16,8 +16,8 @@ from kudioenhance.config import Config
 log = logging.getLogger(__name__)
 
 __all__ = ["ModelSpec", "REGISTRY", "list_models", "is_sequence",
-           "default_units", "resolve_units", "build_model", "count_params",
-           "model_bibtex"]
+           "is_waveform", "default_units", "resolve_units", "build_model",
+           "count_params", "model_bibtex"]
 
 
 @dataclass(frozen=True)
@@ -39,6 +39,13 @@ class ModelSpec:
     ``references`` holds the BibTeX of the works the architecture follows,
     which ``evaluate`` puts into ``results.bib`` beside kudio's entries for
     the metrics.
+
+    ``waveform`` marks an architecture of the waveform path: it is trained
+    on waveform crops through the complex STFT by
+    :func:`kudioenhance.waveform_train.fit_waveform`, and takes and gives
+    a complex spectrum, as
+    :func:`~kudioenhance.waveform_train.estimate_spectrum` says.
+    ``sequence`` means nothing to it.
     """
 
     builder: Callable
@@ -46,6 +53,7 @@ class ModelSpec:
     description: str
     default_units: Tuple[int, ...] = (1024, 1024, 1024)
     references: Tuple[str, ...] = ()
+    waveform: bool = False
 
 
 def _ddae(cfg: Config):
@@ -230,6 +238,11 @@ def _spec(name: str) -> ModelSpec:
 
 def is_sequence(name: str) -> bool:
     return _spec(name).sequence
+
+
+def is_waveform(name: str) -> bool:
+    """Does architecture *name* train on the waveform path?"""
+    return _spec(name).waveform
 
 
 def default_units(name: str) -> List[int]:

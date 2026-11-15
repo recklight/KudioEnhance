@@ -30,7 +30,7 @@ from kudioenhance.inference import Enhancer
 
 log = logging.getLogger(__name__)
 
-__all__ = ["synthesize", "train", "evaluate", "run"]
+__all__ = ["synthesize", "train", "train_waveform", "evaluate", "run"]
 
 SPLIT_FILE = "splits.json"
 
@@ -78,8 +78,11 @@ def _load_split(cfg: Config, name: str, part: str) -> List[Pair]:
 # ------------------------------------------------------------------ stage 2
 
 def train(cfg: Config, name: str, *, epochs: Optional[int] = None,
-          verbose: int = 1) -> Dict[str, List[float]]:
+          verbose: int = 1, resume: bool = False) -> Dict[str, List[float]]:
     """Build the datasets, fit the model, and save everything to reuse it.
+
+    An architecture of the waveform path goes to :func:`train_waveform`
+    instead, and only it can *resume*.
 
     The training and validation sets are held in memory, or streamed from
     the audio every epoch when ``train.streaming`` is set; see
@@ -92,17 +95,28 @@ def train(cfg: Config, name: str, *, epochs: Optional[int] = None,
     rebuilt exactly whatever the default later becomes. *cfg* itself is left
     as it was.
     """
-    from kudioenhance.models import build_model, is_sequence, resolve_units
+    from kudioenhance.models import (
+        build_model,
+        is_sequence,
+        is_waveform,
+        resolve_units,
+    )
     from kudioenhance.train import (
         check_batch_size,
         fit,
         plot_history,
         save_history,
         seeded,
-        summarise_history,
         training_seed,
     )
 
+    if is_waveform(cfg.model.name):
+        return train_waveform(cfg, name, epochs=epochs, verbose=verbose,
+                              resume=resume)
+    if resume:
+        raise ValueError(
+            f"{cfg.model.name} trains on the log-power path, which cannot "
+            f"resume: train it again from the start")
     cfg = resolve_units(cfg)
     # before the training set is built, which can be a pass over the audio
     check_batch_size(cfg)
@@ -138,6 +152,50 @@ def train(cfg: Config, name: str, *, epochs: Optional[int] = None,
     # the terminal closed
     save_history(cfg.history_path(name), history)
     plot_history(history, cfg.run_dir(name) / "history.png", title=name)
+    _log_summary(name, history)
+    return history
+
+
+def train_waveform(cfg: Config, name: str, *, epochs: Optional[int] = None,
+                   verbose: int = 1, resume: bool = False
+                   ) -> Dict[str, List[float]]:
+    """Train an architecture of the waveform path, or carry on with one.
+
+    The examples are crops of the waveforms
+    (:func:`~kudioenhance.waveform.waveform_loader`): a fresh crop of every
+    training pair each epoch, read by ``train.num_workers`` workers, and the
+    middle of every validation pair, read in the training process. The
+    weights are initialised from the training seed, and
+    :func:`~kudioenhance.waveform_train.fit_waveform` writes the run
+    directory as it goes: ``config.yaml`` first, then the best weights,
+    ``resume.pt``, ``history.json`` and ``progress.json`` every epoch.
+    Returns the curves.
+    """
+    from kudioenhance.models import build_model, resolve_units
+    from kudioenhance.train import plot_history, seeded, training_seed
+    from kudioenhance.waveform import waveform_loader
+    from kudioenhance.waveform_train import fit_waveform
+
+    cfg = resolve_units(cfg)
+    train_pairs = _load_split(cfg, name, "train")
+    val_pairs = _load_split(cfg, name, "val")
+    train_loader = waveform_loader(train_pairs, cfg)
+    # validation reads a few hundred crops once an epoch; workers of its
+    # own would sit idle, holding memory, while the model trains
+    val_loader = (waveform_loader(val_pairs, cfg, shuffle=False,
+                                  num_workers=0) if val_pairs else None)
+    with seeded(training_seed(cfg)):
+        model = build_model(cfg)
+    history = fit_waveform(model, train_loader, val_loader, cfg,
+                           cfg.run_dir(name), epochs=epochs, resume=resume,
+                           verbose=verbose)
+    plot_history(history, cfg.run_dir(name) / "history.png", title=name)
+    _log_summary(name, history)
+    return history
+
+
+def _log_summary(name: str, history: Dict[str, List[float]]) -> None:
+    from kudioenhance.train import summarise_history
     summary = summarise_history(history)
     if summary["best"] is not None:
         log.info("%s: %d epoch(s), best %s %.5f at epoch %d%s",
@@ -145,7 +203,6 @@ def train(cfg: Config, name: str, *, epochs: Optional[int] = None,
                  summary["best_epoch"],
                  "" if summary["improved"]
                  else " — no improvement over the first epoch")
-    return history
 
 
 # ------------------------------------------------------------------ stage 3
@@ -198,7 +255,18 @@ def run(cfg: Config, name: str, *, epochs: Optional[int] = None,
         ) -> Dict[str, float]:
     """synthesize -> train -> evaluate, returning the summary scores. A
     prepared corpus (``data.prepared``) is split already, and goes straight
-    to training."""
+    to training.
+
+    :raises FileExistsError: for a run of the waveform path that has started
+        already, before anything is mixed over its splits; carry on with it
+        through :func:`train` and ``resume=True``.
+    """
+    from kudioenhance.models import is_waveform
+    if is_waveform(cfg.model.name) and cfg.resume_path(name).is_file():
+        raise FileExistsError(
+            f"{cfg.run_dir(name)} holds a run already "
+            f"({cfg.resume_path(name).name}); resume it with train, or pick "
+            f"another name")
     if not cfg.data.prepared:
         synthesize(cfg, name)
     train(cfg, name, epochs=epochs, verbose=verbose)

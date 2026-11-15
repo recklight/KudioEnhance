@@ -6,6 +6,7 @@
     kudioenhance prepare zips/ data/vbd16k       # VoiceBank-DEMAND at 16 kHz
     kudioenhance synth    -c config.yaml -n exp1 # stage 1: mix the dataset
     kudioenhance train    -c config.yaml -n exp1 # stage 2: fit the model
+    kudioenhance train    -c config.yaml -n exp1 --resume  # carry on
     kudioenhance evaluate -c config.yaml -n exp1 # stage 3: score the test split
     kudioenhance run      -c config.yaml -n exp1 # all three
     kudioenhance curves   -c config.yaml -n exp1 # did it actually learn?
@@ -77,6 +78,12 @@ def _parser() -> argparse.ArgumentParser:
         if stage in ("train", "run"):
             p.add_argument("--epochs", type=int,
                            help="override train.epochs (use 1 for a smoke run)")
+        if stage == "train":
+            p.add_argument("--resume", action="store_true",
+                           help="carry on from the run's resume.pt, after the "
+                                "last epoch that finished (waveform-path "
+                                "models; give a larger --epochs to extend a "
+                                "finished run)")
         if stage in ("evaluate", "run"):
             p.add_argument("--pesq-scale", default="lqo",
                            choices=["lqo", "raw"],
@@ -230,7 +237,19 @@ def main(argv=None) -> int:
         return 0
 
     if args.command == "train":
-        pipeline.train(cfg, args.name, epochs=args.epochs)
+        try:
+            pipeline.train(cfg, args.name, epochs=args.epochs,
+                           resume=args.resume)
+        except (FileExistsError, FileNotFoundError) as e:
+            print(e, file=sys.stderr)
+            return 1
+        except ValueError as e:
+            # what --resume refuses: another config, or a model that
+            # cannot resume; any other ValueError keeps its traceback
+            if not args.resume:
+                raise
+            print(e, file=sys.stderr)
+            return 1
         print(f"model -> {cfg.model_path(args.name)}")
         return 0
 
@@ -243,7 +262,12 @@ def main(argv=None) -> int:
     if args.command == "evaluate":
         _, summary = pipeline.evaluate(cfg, args.name, **scoring)
     else:
-        summary = pipeline.run(cfg, args.name, epochs=args.epochs, **scoring)
+        try:
+            summary = pipeline.run(cfg, args.name, epochs=args.epochs,
+                                   **scoring)
+        except FileExistsError as e:
+            print(e, file=sys.stderr)
+            return 1
     _print_summary(summary)
     print(f"report -> {cfg.report_path(args.name)}")
     print(f"table  -> {cfg.results_path(args.name)} (.tex, .json, .bib beside it)")
