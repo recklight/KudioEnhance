@@ -11,7 +11,7 @@ GTCRN trained on VoiceBank-DEMAND at 16 kHz, on the CPU.
 | Causal | yes: no frame looks ahead; the STFT adds 32 ms of its own |
 | File | `gtcrn-vbd16k.pt`, 226,275 bytes |
 | SHA-256 | `357f4c9da4fd09895bd28e3933aed729dc84869104343b335d2ec990448bee99` |
-| Download | {URL} |
+| Download | <https://github.com/recklight/KudioEnhance/releases/download/gtcrn-vbd16k/gtcrn-vbd16k.pt> |
 | Licence | the weights CC BY 4.0, the code MIT |
 
 ## Using it

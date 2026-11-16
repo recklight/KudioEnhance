@@ -65,6 +65,46 @@ def test_every_published_entry_holds_together():
         assert entry.url.startswith("https://")
 
 
+def test_gtcrn_vbd16k_is_the_run_in_its_model_card():
+    """The hash and the sections are those of the run in the model card,
+    written out by hand from `Pretrained.from_run`; a slip in either would
+    only show on someone's first download."""
+    entry = PRETRAINED["gtcrn-vbd16k"]
+    assert entry.sha256 == ("357f4c9da4fd09895bd28e3933aed729"
+                            "dc84869104343b335d2ec990448bee99")
+    assert entry.url == ("https://github.com/recklight/KudioEnhance/releases/"
+                         "download/gtcrn-vbd16k/gtcrn-vbd16k.pt")
+    assert (entry.model, entry.sr, entry.licence) == ("gtcrn", SR,
+                                                      "CC BY 4.0")
+    cfg = entry.inference_config()
+    assert (cfg.audio.n_fft, cfg.audio.hop_length, cfg.audio.window,
+            cfg.audio.pad_mode) == (512, 256, "sqrt_hann", "reflect")
+    assert (cfg.model.target, cfg.model.units) == ("spectrum", [16])
+
+
+def test_gtcrn_vbd16k_builds_the_network_its_weights_fit():
+    pytest.importorskip("torch", reason="needs PyTorch", exc_type=ImportError)
+    from kudioenhance.models import build_model, count_params, resolve_units
+
+    cfg = resolve_units(PRETRAINED["gtcrn-vbd16k"].inference_config())
+    assert count_params(build_model(cfg)) == 23_669
+
+
+def test_every_model_card_has_its_entry_and_its_hash():
+    """A card in docs/models/ is the page an entry links to: same name, the
+    entry's SHA-256 and URL on it, and no placeholder left."""
+    cards = sorted((SRC.parent / "docs" / "models").glob("*.md"))
+    assert cards, "docs/models/ has no model cards"
+    assert sorted(card.stem for card in cards) == sorted(PRETRAINED)
+    for card in cards:
+        entry = PRETRAINED[card.stem]
+        text = card.read_text(encoding="utf-8")
+        assert entry.sha256 in text, card.name
+        assert entry.url in text, card.name
+        assert "{URL}" not in text, card.name
+        assert entry.card.endswith(f"/docs/models/{card.name}")
+
+
 @pytest.mark.parametrize("changes, message", [
     ({"sha256": "abc"}, "64 lowercase hex"),
     ({"sha256": "A" * 64}, "64 lowercase hex"),

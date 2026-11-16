@@ -4,7 +4,7 @@ Notable changes to **KudioEnhance** from 1.0 on. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). What changed
 before 1.0 is in the README's *Since 0.2.0* and *Since 3.5.0* notes.
 
-## [Unreleased]
+## [2.0.0] - 2026-11-16
 
 A second path for models that work on the complex spectrum and learn from
 waveforms, GTCRN on it, weights for it trained on VoiceBank-DEMAND on the

@@ -5,8 +5,8 @@ abstract: "Train and run learned speech-enhancement (denoising) models on top of
 type: software
 authors:
   - alias: "RL"
-version: "1.0"
-date-released: "2026-10-23"
+version: "2.0.0"
+date-released: "2026-11-16"
 license: MIT
 repository-code: "https://github.com/recklight/KudioEnhance"
 url: "https://pypi.org/project/kudioenhance/"

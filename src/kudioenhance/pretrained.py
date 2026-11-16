@@ -145,9 +145,36 @@ class Pretrained:
                    description=description, card=card)
 
 
+_RELEASES = "https://github.com/recklight/KudioEnhance/releases/download"
+_CARDS = "https://github.com/recklight/KudioEnhance/blob/master/docs/models"
+
 #: The published weights by name. Each entry's URL and hash are those of the
 #: release that publishes it.
-PRETRAINED: Dict[str, Pretrained] = {}
+PRETRAINED: Dict[str, Pretrained] = {entry.name: entry for entry in [
+    # the run in the model card: 2 s crops, the epoch with the lowest
+    # validation loss (51 of 61), WB-PESQ 2.77 on the VoiceBank-DEMAND test
+    # set. Its own release, not a version tag's, so the file is there
+    # before the version that names it.
+    Pretrained(
+        name="gtcrn-vbd16k",
+        model="gtcrn",
+        url=f"{_RELEASES}/gtcrn-vbd16k/gtcrn-vbd16k.pt",
+        sha256="357f4c9da4fd09895bd28e3933aed729"
+               "dc84869104343b335d2ec990448bee99",
+        sr=16000,
+        licence="CC BY 4.0",
+        data="VoiceBank-DEMAND, 26 training speakers, 16 kHz (CC BY 4.0)",
+        config={
+            "audio": {"sr": 16000, "n_fft": 512, "hop_length": 256,
+                      "win_length": 512, "window": "sqrt_hann",
+                      "compress": None, "pad_mode": "reflect"},
+            "model": {"name": "gtcrn", "target": "spectrum", "context": 2,
+                      "n_frames": 64, "units": [16], "dropout": 0.0},
+        },
+        description="GTCRN, VoiceBank-DEMAND, trained on the CPU",
+        card=f"{_CARDS}/gtcrn-vbd16k.md",
+    ),
+]}
 
 
 def cache_dir() -> Path:
