@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Chunked inference on the waveform path: a long file is enhanced a fixed
-length at a time, and away from the chunks' ends the result is the whole
-file's."""
+length at a time, and away from the seams between chunks the result is the
+whole file's, its two ends included."""
 from __future__ import annotations
 
 import numpy as np
@@ -29,10 +29,10 @@ CHUNK, OVERLAP = 1.0, 0.256
 #: three-frame average, and half a window back out.
 REACH = N_FFT + HOP
 #: How far chunked and whole-file output may differ further than that from
-#: the chunks' ends, as a fraction of the output's peak. There a chunk's
-#: frames are the whole file's, the same samples at the same places, and
-#: the two chunks a cross-fade mixes agree: the difference is float32
-#: rounding, at most 4e-8 over five lengths and four seeds of gate.
+#: a seam, as a fraction of the output's peak. There a chunk's frames are
+#: the whole file's, the same samples at the same places, and the two
+#: chunks a cross-fade mixes agree: the difference is float32 rounding, at
+#: most 2e-8 over five lengths and four seeds of gate.
 TOLERANCE = 1e-5
 
 
@@ -66,28 +66,26 @@ def _enhancers(cfg, model, **chunking):
             Enhancer(model, None, cfg, **chunking))
 
 
-def _near_an_end(n, chunk, overlap, margin) -> np.ndarray:
-    """True within *margin* samples of where any chunk starts or ends, and
-    of the file's own ends."""
+def _near_a_seam(n, chunk, overlap, margin) -> np.ndarray:
+    """True within *margin* samples of where a chunk after the first starts,
+    or one before the last ends. The file's own ends are not seams: the
+    first chunk starts and the last one stops where the file does."""
     near = np.zeros(n, dtype=bool)
-    edges = [0, n]
     start = 0
-    while True:
-        edges += [start, start + chunk]
-        if start + chunk >= n:
-            break
-        start += chunk - overlap
-    for edge in edges:
-        near[max(edge - margin, 0):edge + margin] = True
+    while start + chunk < n:
+        following = start + chunk - overlap
+        for edge in (following, start + chunk):
+            near[max(edge - margin, 0):edge + margin] = True
+        start = following
     return near
 
 
 @pytest.mark.parametrize("seconds", [3.7, 5.13])
 @pytest.mark.parametrize("pad_mode, window", [("constant", "hann"),
                                               ("reflect", "sqrt_hann")])
-def test_chunks_agree_with_the_whole_file_away_from_their_ends(pad_mode,
-                                                               window,
-                                                               seconds):
+def test_chunks_agree_with_the_whole_file_away_from_the_seams(pad_mode,
+                                                              window,
+                                                              seconds):
     cfg = _config(pad_mode, window)
     _, noisy = tones_in_noise(seconds, seed=8)
     whole, chunked = _enhancers(cfg, _gate(), chunk_seconds=CHUNK,
@@ -95,13 +93,14 @@ def test_chunks_agree_with_the_whole_file_away_from_their_ends(pad_mode,
     reference, result = whole.enhance(noisy), chunked.enhance(noisy)
 
     assert result.shape == noisy.shape and result.dtype == np.float32
-    near = _near_an_end(len(noisy), chunked.chunk, chunked.overlap, REACH)
+    near = _near_a_seam(len(noisy), chunked.chunk, chunked.overlap, REACH)
     peak = np.max(np.abs(reference))
     away = np.max(np.abs(result - reference)[~near]) / peak
     assert away < TOLERANCE
-    # at the ends the frames see the chunk's padding: up to 1.5% of the
-    # peak with zeros at the file's ends, 2.8% reflected
-    assert np.max(np.abs(result - reference)) / peak < 0.05
+    # at a seam the frames that see a chunk's padding are faded down to a
+    # weight below 0.006; the difference there was at most 8e-6 of the peak
+    # over the same lengths and seeds
+    assert np.max(np.abs(result - reference)) / peak < 1e-4
     assert np.mean(near) < 0.25
 
 
@@ -117,8 +116,28 @@ def test_the_model_never_sees_more_than_a_chunk():
     chunked.enhance(noisy)
 
     frames = 1 + chunked.chunk // HOP
-    # 3.7 s in chunks of 1 s that step 0.744 s: the fifth reaches the end
-    assert shapes == [(1, N_FFT // 2 + 1, frames)] * 5
+    # 3.7 s in chunks of 1 s that step 0.744 s: the fifth reaches the end,
+    # and holds the 29,600 - 4 x 5,952 = 5,792 samples left
+    bins = N_FFT // 2 + 1
+    assert shapes == [(1, bins, frames)] * 4 + [(1, bins, 1 + 5792 // HOP)]
+
+
+@pytest.mark.parametrize("pad_mode, window", [("constant", "hann"),
+                                              ("reflect", "sqrt_hann")])
+def test_a_long_file_ends_as_it_does_when_enhanced_whole(pad_mode, window):
+    """The last chunk stops where the file does, so its last frames are
+    padded the way the whole file's are, mirrored or with zeros, and not
+    with the silence a full-length chunk would add."""
+    cfg = _config(pad_mode, window)
+    whole, chunked = _enhancers(cfg, _gate(), chunk_seconds=CHUNK,
+                                overlap_seconds=OVERLAP)
+    for seconds in (3.7, 5.13):
+        _, noisy = tones_in_noise(seconds, seed=9)
+        reference, result = whole.enhance(noisy), chunked.enhance(noisy)
+        peak = np.max(np.abs(reference))
+        tail = slice(len(noisy) - chunked.overlap, None)
+        assert np.max(np.abs(result[tail] - reference[tail])) \
+            < TOLERANCE * peak
 
 
 def test_a_file_that_fits_in_one_chunk_is_enhanced_whole():
@@ -135,13 +154,26 @@ def test_a_file_one_sample_past_a_chunk_still_comes_back_whole_length():
     _, chunked = _enhancers(cfg, _gate(), chunk_seconds=CHUNK,
                             overlap_seconds=OVERLAP)
     whole = Enhancer(_gate(), None, cfg, chunk_seconds=None)
-    _, noisy = tones_in_noise(CHUNK + 1 / SR, seed=4)
+    # cut to length: int(1.000125 * 8000) would round back down to a chunk
+    noisy = tones_in_noise(2 * CHUNK, seed=4)[1][:chunked.chunk + 1]
     result, reference = chunked.enhance(noisy), whole.enhance(noisy)
-    assert len(result) == len(noisy)
-    near = _near_an_end(len(noisy), chunked.chunk, chunked.overlap, REACH)
+    assert len(result) == len(noisy) == chunked.chunk + 1
+    near = _near_a_seam(len(noisy), chunked.chunk, chunked.overlap, REACH)
     assert np.max(np.abs(result - reference)[~near]) \
         < TOLERANCE * np.max(np.abs(reference))
     assert len(chunked.enhance(np.zeros(0, dtype=np.float32))) == 0
+
+
+def test_without_overlap_a_last_chunk_of_one_sample_still_comes_back():
+    """The one case the last chunk can be too short for reflect padding:
+    it is padded with zeros, as a file that short would be."""
+    cfg = _config("reflect", "sqrt_hann")
+    _, chunked = _enhancers(cfg, _gate(), chunk_seconds=CHUNK,
+                            overlap_seconds=0)
+    noisy = tones_in_noise(2 * CHUNK, seed=4)[1][:chunked.chunk + 1]
+    result = chunked.enhance(noisy)
+    assert len(result) == len(noisy) == chunked.chunk + 1
+    assert np.all(np.isfinite(result))
 
 
 @pytest.mark.parametrize("pad_mode, window", [("constant", "hann"),
@@ -163,7 +195,7 @@ def test_without_overlap_the_chunks_are_butted_together():
     _, noisy = tones_in_noise(2.5, seed=6)
     reference, result = whole.enhance(noisy), chunked.enhance(noisy)
 
-    near = _near_an_end(len(noisy), chunked.chunk, 0, REACH)
+    near = _near_a_seam(len(noisy), chunked.chunk, 0, REACH)
     assert np.max(np.abs(result - reference)[~near]) \
         < TOLERANCE * np.max(np.abs(reference))
 

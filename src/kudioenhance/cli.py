@@ -2,6 +2,8 @@
 """Command line interface.
 
     kudioenhance models                          # list architectures
+    kudioenhance pretrained                      # list the published weights
+    kudioenhance pretrained NAME                 # download them, check the hash
     kudioenhance init config.yaml                # write a starter config
     kudioenhance prepare zips/ data/vbd16k       # VoiceBank-DEMAND at 16 kHz
     kudioenhance synth    -c config.yaml -n exp1 # stage 1: mix the dataset
@@ -12,6 +14,7 @@
     kudioenhance curves   -c config.yaml -n exp1 # did it actually learn?
     kudioenhance denoise runs/exp1 noisy.wav out.wav
     kudioenhance denoise runs/exp1 noisy/ clean/ --recursive --report
+    kudioenhance denoise NAME noisy.wav out.wav  # published weights
 """
 from __future__ import annotations
 
@@ -47,6 +50,17 @@ def _parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("models", help="list the available architectures")
+
+    pretrained = sub.add_parser(
+        "pretrained",
+        help="list the published weights, or download them into the cache")
+    pretrained.add_argument(
+        "names", nargs="*", metavar="NAME",
+        help="download these and check their SHA-256; none lists them all")
+    pretrained.add_argument(
+        "--cache",
+        help="folder the downloads are kept in (default: $KUDIOENHANCE_CACHE, "
+             "or kudioenhance under $XDG_CACHE_HOME or ~/.cache)")
 
     init = sub.add_parser("init", help="write a starter config file")
     init.add_argument("path", nargs="?", default="config.yaml")
@@ -117,7 +131,10 @@ def _parser() -> argparse.ArgumentParser:
 
     denoise = sub.add_parser("denoise",
                              help="enhance a file, or a folder, with a trained run")
-    denoise.add_argument("run_dir", help="e.g. runs/exp1")
+    denoise.add_argument("run_dir",
+                         help="a run directory, e.g. runs/exp1, or the name of "
+                              "published weights (`kudioenhance pretrained` "
+                              "lists them; the first use downloads them)")
     denoise.add_argument("input")
     denoise.add_argument("output")
     denoise.add_argument("--recursive", action="store_true",
@@ -126,6 +143,9 @@ def _parser() -> argparse.ArgumentParser:
     denoise.add_argument("--report", action="store_true",
                          help="also measure each file's noise floor "
                               "before and after (folder mode)")
+    denoise.add_argument("--cache",
+                         help="folder published weights are kept in, as "
+                              "`kudioenhance pretrained --cache` takes it")
 
     curves = sub.add_parser("curves",
                             help="what the training run's history says")
@@ -154,6 +174,9 @@ def main(argv=None) -> int:
             print(f"{name:10s}  {spec.description:{width}s}  "
                   f"units: {list(spec.default_units)}")
         return 0
+
+    if args.command == "pretrained":
+        return _pretrained(args.names, args.cache)
 
     if args.command == "init":
         from kudioenhance.config import Config
@@ -186,7 +209,14 @@ def main(argv=None) -> int:
 
     if args.command == "denoise":
         from kudioenhance.inference import Enhancer
-        enhancer = Enhancer.load(args.run_dir)
+        try:
+            enhancer = Enhancer.load(args.run_dir, cache=args.cache)
+        except (OSError, KeyError, ValueError) as e:
+            # no such run, weights that would not download, or a hash or
+            # an architecture that does not match: a sentence, not a trace
+            print(e.args[0] if isinstance(e, KeyError) else e,
+                  file=sys.stderr)
+            return 1
         if args.recursive:
             result = enhancer.enhance_folder(args.input, args.output,
                                              report=args.report)
@@ -272,6 +302,39 @@ def main(argv=None) -> int:
     print(f"report -> {cfg.report_path(args.name)}")
     print(f"table  -> {cfg.results_path(args.name)} (.tex, .json, .bib beside it)")
     return 0
+
+
+def _pretrained(names, cache) -> int:
+    from kudioenhance.pretrained import PRETRAINED, describe, fetch
+
+    if not names:
+        if not PRETRAINED:
+            print(f"no pretrained weights are published with kudioenhance "
+                  f"{__version__}")
+            return 0
+        for name in sorted(PRETRAINED):
+            info = describe(PRETRAINED[name], cache)
+            print(f"{name}  {info['model']}, {info['sr']} Hz  "
+                  f"{info['description']}")
+            print(f"    trained on {info['data']}; weights {info['licence']}")
+            if info["card"]:
+                print(f"    model card: {info['card']}")
+            cached = info["cached"]
+            print(f"    cached: {cached}" if cached else "    not downloaded")
+        return 0
+    status = 0
+    for name in names:
+        try:
+            path = fetch(name, cache)
+        except KeyError as e:
+            print(e.args[0], file=sys.stderr)
+            status = 1
+        except (OSError, ValueError) as e:
+            print(f"{name}: {e}", file=sys.stderr)
+            status = 1
+        else:
+            print(f"{name} -> {path} (SHA-256 checked)")
+    return status
 
 
 def _metrics(text):

@@ -6,7 +6,7 @@ them travel together — loading a run directory gives you all three, so
 inference can never silently disagree with training.
 
 A model of the waveform path has no statistics, and runs on the complex
-spectrum. A long file is cut into chunks of fixed length that overlap, each
+spectrum. A long file is cut into chunks, 30 s by default, that overlap, each
 enhanced on its own and cross-faded into the next, so the memory a file
 takes does not grow with its length beyond the output itself.
 """
@@ -42,8 +42,8 @@ FRAME_BATCH = 4096
 #: file of VoiceBank-DEMAND (the longest is 15 s) and of the DNS Challenge's
 #: test sets (10 s) in one piece, so their scores are those of the whole
 #: file; 1 s of overlap is 3.4% more work, and keeps the frames a chunk
-#: starts or ends with, which see its zero padding instead of the audio
-#: around it, at a weight below 0.003 for a 512-point frame at 16 kHz.
+#: starts or ends with, which see its padding instead of the audio around
+#: it, at a weight below 0.003 for a 512-point frame at 16 kHz.
 CHUNK_SECONDS = 30.0
 OVERLAP_SECONDS = 1.0
 
@@ -114,7 +114,8 @@ class Enhancer:
     def load(cls, run_dir, config_name: str = "config.yaml", *,
              device: str = "auto",
              chunk_seconds: Optional[float] = CHUNK_SECONDS,
-             overlap_seconds: float = OVERLAP_SECONDS) -> "Enhancer":
+             overlap_seconds: float = OVERLAP_SECONDS,
+             cache=None) -> "Enhancer":
         """Load model + stats + config from a run directory.
 
         The checkpoint holds weights only. The architecture is rebuilt from
@@ -125,12 +126,31 @@ class Enhancer:
         A run of the waveform path has no ``stats.npz``, and loads while it
         is still training: its best epoch so far.
 
+        *run_dir* may also be the name of published weights
+        (:mod:`kudioenhance.pretrained`), which then load as
+        :meth:`pretrained` loads them. A directory of that name wins.
+
         :param device: where to run — ``'auto'``, whatever ``train.device``
             the run was trained with, because a model trained on a GPU box is
             routinely used on a laptop.
         :param chunk_seconds, overlap_seconds: as the constructor takes them.
+        :param cache: where published weights are kept, as
+            :meth:`pretrained` takes it; a run directory does not use it.
+        :raises FileNotFoundError: for a path that is neither a directory
+            nor a published name.
         """
         run_dir = Path(run_dir)
+        if not run_dir.is_dir():
+            from kudioenhance.pretrained import PRETRAINED
+            if str(run_dir) in PRETRAINED:
+                return cls.pretrained(str(run_dir), cache=cache,
+                                      device=device,
+                                      chunk_seconds=chunk_seconds,
+                                      overlap_seconds=overlap_seconds)
+            published = ", ".join(sorted(PRETRAINED)) or "none in this release"
+            raise FileNotFoundError(
+                f"{run_dir} is neither a run directory nor the name of "
+                f"published weights (published: {published})")
         # a run trained here always names its widths; one whose config was
         # written by hand may leave them to the default, and `cfg` should
         # say what was built either way
@@ -146,7 +166,45 @@ class Enhancer:
                     f"it — the config and the splits in the run directory "
                     f"can be reused as they are")
             raise FileNotFoundError(f"no model at {model_path}")
+        stats = (None if is_waveform(cfg.model.name)
+                 else run_dir / "stats.npz")
+        return cls._from_checkpoint(model_path, cfg, stats, config_name,
+                                    device=device,
+                                    chunk_seconds=chunk_seconds,
+                                    overlap_seconds=overlap_seconds)
 
+    @classmethod
+    def pretrained(cls, name: str, *, cache=None, device: str = "auto",
+                   chunk_seconds: Optional[float] = CHUNK_SECONDS,
+                   overlap_seconds: float = OVERLAP_SECONDS) -> "Enhancer":
+        """Load published weights by name, downloading them into the cache
+        the first time.
+
+        >>> enh = Enhancer.pretrained('gtcrn-vbd16k')   # doctest: +SKIP
+
+        The file's SHA-256 is checked against the entry before it is read,
+        and the network is built from the entry's ``audio`` and ``model``
+        sections, then checked against what the file says it holds, as
+        :meth:`load` checks a run.
+
+        :param cache: the cache folder; ``None`` is
+            :func:`kudioenhance.pretrained.cache_dir`.
+        """
+        from kudioenhance.pretrained import fetch, get
+
+        entry = get(name)
+        path = fetch(name, cache)
+        cfg = resolve_units(entry.inference_config())
+        return cls._from_checkpoint(path, cfg, None,
+                                    f"the entry for {name}", device=device,
+                                    chunk_seconds=chunk_seconds,
+                                    overlap_seconds=overlap_seconds)
+
+    @classmethod
+    def _from_checkpoint(cls, model_path: Path, cfg: Config,
+                         stats: Optional[Path], described_by: str, *,
+                         device: str, chunk_seconds: Optional[float],
+                         overlap_seconds: float) -> "Enhancer":
         from kudioenhance.checkpoint import load_checkpoint
         from kudioenhance.models import build_model
         from kudioenhance.train import resolve_device
@@ -157,12 +215,11 @@ class Enhancer:
         if trained_as != (cfg.model.name, cfg.model.target):
             raise ValueError(
                 f"{model_path} holds a {trained_as[0]} trained for the "
-                f"{trained_as[1]!r} target, but {config_name} describes a "
+                f"{trained_as[1]!r} target, but {described_by} describes a "
                 f"{cfg.model.name} for {cfg.model.target!r}")
         model = build_model(cfg)
         model.load_state_dict(checkpoint["state_dict"])
-        standardizer = (None if is_waveform(cfg.model.name)
-                        else Standardizer.load(run_dir / "stats.npz"))
+        standardizer = None if stats is None else Standardizer.load(stats)
         return cls(model.to(run_on), standardizer, cfg,
                    chunk_seconds=chunk_seconds,
                    overlap_seconds=overlap_seconds)
@@ -212,10 +269,17 @@ class Enhancer:
         chunk by chunk.
 
         Chunk k starts at ``k (chunk - overlap)``, and the last one, which
-        reaches the end, is padded with zeros to the full length, so the
-        model always sees the same shape. Across each overlap the earlier
-        chunk fades out as ``cos^2`` and the later one fades in as
-        ``sin^2``, which add to 1, so where neighbouring chunks agree the
+        reaches the end, stops where the file does and is shorter than the
+        rest. Padded out to a full chunk, its last frames would see silence
+        where the whole file's STFT sees the signal mirrored, and the final
+        32 ms or so would come out different; ending with the file, they go
+        through the STFT exactly as the whole file's do. The last chunk is
+        longer than the overlap, so with an overlap of half a frame or more
+        (the default is 1 s) it is never too short for that; with less, a
+        last chunk of half a frame or under is padded with zeros as a file
+        that short is, inside the reach of a seam anyway. Across each overlap
+        the earlier chunk fades out as ``cos^2`` and the later one fades in
+        as ``sin^2``, which add to 1, so where neighbouring chunks agree the
         result is what each says. They agree away from their ends for a
         model that sees a few frames either side; a recurrent one starts
         every chunk from its initial state, and the overlap is where it
@@ -236,10 +300,9 @@ class Enhancer:
         start = 0
         while True:
             last = start + self.chunk >= n
-            piece = y[start:start + self.chunk]
-            if len(piece) < self.chunk:
-                piece = np.pad(piece, (0, self.chunk - len(piece)))
-            enhanced = self._run(piece).astype(np.float64)
+            # the last piece is longer than the overlap, since the chunk
+            # before it ended short of the file
+            enhanced = self._run(y[start:start + self.chunk]).astype(np.float64)
             if tail is not None and overlap:
                 enhanced[:overlap] = ((1.0 - fade_in) * tail
                                       + fade_in * enhanced[:overlap])

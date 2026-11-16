@@ -9,7 +9,8 @@
 [![kudio](https://img.shields.io/pypi/v/kudio.svg?label=kudio)](https://pypi.org/project/kudio/)
 
 **Train and run learned speech-enhancement (denoising) models**, built on the
-[`kudio`](https://pypi.org/project/kudio/) audio toolkit.
+[`kudio`](https://pypi.org/project/kudio/) audio toolkit, or denoise with the
+weights trained here.
 
 Three stages, one config file:
 
@@ -20,12 +21,16 @@ The figure is a link to an interactive version — [open it online](https://raw.
 Each stage reads what the one before it wrote, so you can re-train without
 re-mixing and re-evaluate without re-training. `run` does all three in order.
 
-Five of the models work in the **log-power spectrogram domain** and reuse the
-noisy phase — the standard magnitude-only enhancement setup. Feature
-extraction and reconstruction both go through `kudio`, so what the model sees
-is exactly what any other kudio-based tool produces. The sixth, `gtcrn`, puts
-out a complex mask and is trained on waveforms; see
-[The waveform path](#the-waveform-path-gtcrn).
+There are two paths through them. Five models work in the **log-power
+spectrogram domain** and reuse the noisy phase — the standard magnitude-only
+enhancement setup. Feature extraction and reconstruction both go through
+`kudio`, so what the model sees is exactly what any other kudio-based tool
+produces. The sixth, `gtcrn`, reads the **complex spectrum**, puts out a
+complex mask and learns from waveforms. It has 23,669 weights, few enough to
+train on a CPU, and its weights trained on VoiceBank-DEMAND are published
+([Pretrained weights](#pretrained-weights)). [The two paths](#the-two-paths)
+sets them side by side, and
+[Results on VoiceBank-DEMAND](#results-on-voicebank-demand) scores both.
 
 ## Install
 
@@ -66,6 +71,43 @@ PESQ comes on two scales. `evaluate` reports MOS-LQO by default; pass
 They are different scales, not different roundings: raw 2.03 is about
 1.66 MOS-LQO. Papers quote both, so check which one a paper used before
 setting your numbers beside it.
+
+## Pretrained weights
+
+To denoise without training anything:
+
+```bash
+kudioenhance pretrained                          # what is published, what is cached
+kudioenhance denoise gtcrn-vbd16k noisy.wav enhanced.wav
+kudioenhance denoise gtcrn-vbd16k noisy/ clean/ --recursive
+```
+
+| Name | Model | Trained on | WB-PESQ | Licence | |
+|---|---|---|---|---|---|
+| `gtcrn-vbd16k` | `gtcrn`, 23,669 weights, 16 kHz, causal | VoiceBank-DEMAND, 26 speakers, on the CPU | 2.77 on its test set | CC BY 4.0 | [model card](https://github.com/recklight/KudioEnhance/blob/master/docs/models/gtcrn-vbd16k.md) |
+
+The first use downloads the file into the cache, `~/.cache/kudioenhance`
+(`$KUDIOENHANCE_CACHE` or `$XDG_CACHE_HOME` to move it, or `--cache DIR` on
+both commands), and `kudioenhance pretrained gtcrn-vbd16k` downloads it
+ahead of time, for a machine that will be offline. The file is the `.pt` its training run wrote,
+unchanged, and its SHA-256 is part of the release: a download is checked
+before it is kept, and the cached file again every time it is loaded, so a
+file that changed on disk is fetched anew rather than used. Wherever a run
+directory goes, in `denoise` and in `Enhancer.load`, the name goes too; a
+folder of that name wins. In Python:
+
+```python
+from kudioenhance import Enhancer
+
+enh = Enhancer.pretrained("gtcrn-vbd16k")
+enh.enhance_file("noisy.wav", "enhanced.wav")
+```
+
+Only waveform-path weights are published. A log-power model needs its run's
+normalisation statistics too, and an entry is one file. The weights are
+under CC BY 4.0, like the data they were trained on, which asks to be
+credited; the model card has the training run, the scores with kudio's
+signature, and what to cite.
 
 ## Quick start
 
@@ -157,6 +199,73 @@ cover other sentences from those two speakers, not a third one. `--speakers`
 takes a regular expression whose first group is the speaker, or `''` for
 none.
 
+## Results on VoiceBank-DEMAND
+
+The 824 test utterances at 16 kHz, prepared by `kudioenhance prepare` and
+scored by `kudioenhance evaluate --full --dnsmos-dir ...` through kudio
+4.0.0. Each checkpoint was chosen on two training speakers held out for
+validation, never on the test set, and everything was trained on one CPU, an
+Intel Core i5-13600K, without a GPU.
+
+| | Weights | WB-PESQ | CSIG | CBAK | COVL | SSNR | STOI | SI-SDR | DNSMOS OVRL |
+|---|---|---|---|---|---|---|---|---|---|
+| Noisy | – | 1.97 | 3.33 | 2.44 | 2.62 | 1.68 | 0.921 | 8.45 | 2.70 |
+| `unet`, `irm` | 483K | 2.65 [2.61, 2.70] | 4.03 | 3.26 | 3.35 | 8.19 | 0.940 | 17.23 | 3.07 |
+| `crn`, `irm` | 5.51M | 2.70 [2.66, 2.75] | 4.14 | 3.28 | 3.44 | 7.98 | 0.941 | 16.69 | 3.06 |
+| `gtcrn` (`gtcrn-vbd16k`) | 23,669 | **2.77** [2.73, 2.81] | 4.09 | 3.41 | 3.43 | 9.85 | 0.939 | 18.69 | 3.07 |
+
+- The brackets are 95% BCa intervals over sentences; the run's own
+  `results.md` has one for every cell, and the
+  [model card](https://github.com/recklight/KudioEnhance/blob/master/docs/models/gtcrn-vbd16k.md)
+  prints `gtcrn`'s whole table with kudio's signature. In those tables
+  every difference from the noisy input is significant after Holm's
+  adjustment, except `gtcrn`'s DNSMOS SIG.
+- SSNR is the segmental SNR of Loizou's `composite.m`,
+  `kudio.composite(...).segsnr`, the column papers on this test set print.
+  `evaluate`'s segSNR row is kudio's `segsnr`, which frames differently and
+  gives 1.56 for the noisy files.
+- The noisy row is the published one, 1.97, 2.44, 1.68, 0.921 and 8.45,
+  with CSIG and COVL about 0.01 lower. The 16 kHz files here are 32-bit
+  float; CMGAN's per-file logs of that row match 16-bit files with dither,
+  whose noise floor moves CSIG and COVL in near-silent frames.
+- `unet` and `crn` are on the log-power path with the `irm` target, at
+  `n_fft: 512`, `hop_length: 256`, 64-frame windows, batch 16 and up to 40
+  epochs with patience 8, streamed. They trained side by side on 4 threads
+  each: `crn` stopped after 24 epochs (best 16) in 10.5 h, `unet` ran all
+  40 (best 39, still improving) in 16.3 h.
+- `gtcrn` trained with the settings in
+  [The waveform path](#the-waveform-path-gtcrn) on 2 threads: it stopped
+  after 61 epochs (best 51) in 14 h 45 min.
+
+Published results on the same test set for light models, as the GTCRN paper
+and its repository print them:
+
+| | Weights | WB-PESQ | STOI | SI-SNR |
+|---|---|---|---|---|
+| RNNoise | 0.06M | 2.29 | | |
+| PercepNet | 8.00M | 2.73 | | |
+| DeepFilterNet | 1.80M | 2.81 | | |
+| S-DCCRN | 2.34M | 2.84 | | |
+| GTCRN | 23.7K | 2.87 | 0.940 | 18.83 |
+
+The trained `gtcrn` comes within 0.001 of the paper's STOI and 0.14 dB of
+its SI-SNR, but 0.10 short of its WB-PESQ, which is outside the interval.
+The paper gives no crop length or epoch count for this dataset; these
+weights saw 2 s crops and stopped at epoch 61, and the GTCRN author has
+suggested crops of about 8 s and 200 epochs elsewhere. Whether that closes
+the gap has not been tried. The GTCRN repository lists 48.2K weights; that
+count includes the two fixed ERB matrices, which here are buffers. Larger
+models go further: CMGAN reaches 3.41, and MP-SENet, with 2.05M weights,
+3.50.
+
+To repeat a row, prepare the corpus as in [VoiceBank-DEMAND](#voicebank-demand),
+then train and score:
+
+```bash
+kudioenhance train    -c gtcrn.yaml -n vbd-gtcrn
+kudioenhance evaluate -c gtcrn.yaml -n vbd-gtcrn --full --jobs 8 --dnsmos-dir models/dnsmos
+```
+
 ## Configuration
 
 ```yaml
@@ -227,7 +336,7 @@ unet        2-D U-Net over time and frequency, non-causal (Ronneberger et al. 20
 | `conv_ae` | `(N, n_frames, bins)` | no | Dilated Conv1D autoencoder with a residual connection — starts from "pass the signal through" rather than from noise. The convolutions along time are a cut-down form of Tan, Chen & Wang, *Gated residual networks with dilated convolutions for monaural speech enhancement* (IEEE/ACM TASLP 2019), without its 2-D front end or its gates; the doubling dilation is Yu & Koltun's (ICLR 2016). |
 | `crn` | `(N, n_frames, bins)` | **yes** | Convolutional recurrent network after Tan & Wang, *A convolutional recurrent neural network for real-time speech enhancement* (Interspeech 2018): a strided 2-D convolutional encoder over time and frequency, an LSTM over time, and a mirrored decoder that takes each encoder layer's output back in. Choose it when the output must not wait for what comes next. |
 | `unet` | `(N, n_frames, bins)` | no — about 50 frames ahead | 2-D U-Net over time and frequency, after Ronneberger et al., *U-Net: Convolutional networks for biomedical image segmentation* (MICCAI 2015), on a spectrogram with a mask out as in Jansson et al., *Singing voice separation with deep U-Net convolutional networks* (ISMIR 2017): convolution blocks, halving both axes on the way down, skip connections on the way back up. Choose it for offline enhancement of whole files; at about half a million parameters it is the smallest log-power model here at the default widths. |
-| `gtcrn` | complex spectrum `(N, bins, frames)` | **yes** | GTCRN after Rong et al., *GTCRN: A speech enhancement model requiring ultralow computational resources* (ICASSP 2024): low bins kept and high ones folded into ERB bands, grouped temporal convolutions with a recurrent attention, a grouped dual-path GRU network, and a complex ratio mask. 23,669 weights and 26.3M multiply-accumulates per second of 16 kHz audio. Choose it when compute is scarce, or when the phase has to be estimated too. |
+| `gtcrn` | complex spectrum `(N, bins, frames)` | **yes** | GTCRN after Rong et al., *GTCRN: A speech enhancement model requiring ultralow computational resources* (ICASSP 2024): low bins kept and high ones folded into ERB bands, grouped temporal convolutions with a recurrent attention, a grouped dual-path GRU network, and a complex ratio mask. 23,669 weights and 26.3M multiply-accumulates per second of 16 kHz audio in its matrix products and convolutions (33.0M the way GTCRN's repository counts, with biases, norms, activations and the GRUs' gate arithmetic). Choose it when compute is scarce, or when the phase has to be estimated too. |
 
 Sequence models are trained on fixed-length windows, but nothing in them
 fixes the length of the time axis, so the same weights enhance a whole
@@ -261,10 +370,39 @@ there is no `if/elif` chain to extend in three places. The entry's
 `default_units` is what `units: null` builds; leave it out and the
 architecture gets the 1024-wide stack the first three share.
 
-### What the network is asked to produce
+## The two paths
+
+| | Log-power path | Waveform path |
+|---|---|---|
+| Models | `ddae`, `blstm`, `conv_ae`, `crn`, `unet` | `gtcrn` |
+| The network sees | the log-power spectrogram from kudio's STFT, standardised | the complex spectrum from `torch.stft` |
+| It puts out | a log-power spectrum, or a mask in [0, 1] (`model.target`) | a complex ratio mask |
+| Phase | the noisy input's | its own |
+| Trained on | every frame of every file, in memory or streamed | a fresh crop of every pair each epoch (`data.crop_seconds`) |
+| Loss | MSE on the target | the `loss` section: compressed complex and magnitude MSE, SI-SNR |
+| Statistics | `stats.npz`, fitted on the training set | none |
+| A stopped run | trains again from the start | `--resume`, to the last bit on the CPU |
+| A long file | in one pass | in 30 s chunks overlapping by 1 s |
+| Published weights | – | `gtcrn-vbd16k` |
+
+Both read the same `audio` section, framed the same way: by default the
+complex values `torch.stft` gives on the waveform path agree with kudio's to
+a millionth of the peak. `train`, `evaluate`, `denoise` and `Enhancer` take
+either; the registry entry of the architecture says which path it is on.
+
+### The log-power path
+
+`ddae`, `blstm`, `conv_ae`, `crn` and `unet` see the log-power spectrogram
+kudio computes, standardised with statistics fitted on the training set and
+kept as `stats.npz` beside the weights. They learn the clean spectrum or a
+mask, and the enhanced magnitude goes back out with the noisy phase. Their
+training set is held in memory or streamed
+([Training data](#training-data-in-memory-or-streamed)).
+
+#### What the network is asked to produce
 
 `model.target` is a separate choice from `model.name`, and every architecture
-supports both:
+of this path supports both:
 
 | Target | The network outputs | |
 |---|---|---|
@@ -353,7 +491,15 @@ best epoch so far.
 
 `Enhancer` enhances a file of up to 30 s in one pass. A longer one is cut
 into chunks of 30 s that overlap by 1 s, cross-faded where they meet, so
-memory stays bounded whatever the length.
+memory stays bounded whatever the length. The last chunk ends where the
+file does, so the file's end goes through the STFT exactly as it would
+whole.
+
+On VoiceBank-DEMAND with these settings, 2 CPU threads trained it in 14 h
+45 min: 61 epochs, the best at 51, about 14.5 min each. Those are the
+published weights, and
+[Results on VoiceBank-DEMAND](#results-on-voicebank-demand) has their
+scores.
 
 ## Rooms
 
@@ -539,6 +685,8 @@ enh = Enhancer.load("runs/exp1")             # model + stats + config together
 clean = enh.enhance_file("noisy.wav", "enhanced.wav")
 result = enh.enhance_folder("noisy/", "clean/", report=True)
 print(result, result.mean_reduction_db())
+
+enh = Enhancer.pretrained("gtcrn-vbd16k")    # published weights, from the cache
 ```
 
 The model is loaded once for the whole tree, and the result is a
@@ -591,7 +739,8 @@ it repeats closely rather than exactly.
 ```
 docs/
 ├── images/workflow.png  # the README figure
-└── workflow.html        # the same diagram, interactive
+├── workflow.html        # the same diagram, interactive
+└── models/              # a model card for each published set of weights
 src/kudioenhance/
 ├── config.py        # typed dataclasses, YAML in/out, run paths
 ├── data.py          # mixing, manifests, splits, training sets
@@ -614,6 +763,7 @@ src/kudioenhance/
 ├── progress.py      # progress.json and history.json, rewritten every epoch
 ├── checkpoint.py    # the .pt formats: weights, and a run's training state
 ├── inference.py     # Enhancer
+├── pretrained.py    # published weights: the entries, the cache, the SHA-256 check
 ├── evaluate.py      # the test split through kudio.score_dataset, the table
 ├── pipeline.py      # the three stages
 └── cli.py           # kudioenhance
@@ -634,10 +784,10 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-471 tests. The suite builds a tiny synthetic corpus in a temp directory and runs
+505 tests. The suite builds a tiny synthetic corpus in a temp directory and runs
 the whole pipeline — mix, train one epoch, enhance, score — in seconds. Tests
 that need PyTorch ask for it by name and skip cleanly when it is not
-installed; the other 178 still run.
+installed; the other 204 still run.
 
 The mask tests check the *formula*, not just that it runs: all-speech gives 1,
 all-noise gives 0, equal power gives 1/√2, and an oracle mask has to actually
@@ -667,17 +817,37 @@ seed. The two modes have to normalise with the same statistics, to the bit.
   about half a gigabyte per minute of 16 kHz audio at the default widths, so
   split long recordings before enhancing them.
 - `gtcrn`'s GRUs start every 30 s chunk from rest, and 1 s of overlap does
-  not hide that entirely. On a 45 s file, with weights trained for a few
-  short epochs, the chunked output differed from the whole file's by about 1%
-  of its RMS for the 3 s after the seam. The last chunk is padded with
-  silence to its full length, where the whole file's STFT mirrors the signal
-  at its end, so the last 32 ms or so of a long file differ more.
+  not hide that. With the published weights the chunked output differs from
+  the whole file's by about 3% of the file's RMS for two seconds after a
+  seam, about 1% from two to five seconds on, and 0.3–0.6% from six to ten.
+  The scores hardly move: on four files of 96–98 s joined from test
+  sentences, the chunked output's WB-PESQ was within 0.005 of the whole
+  file's and its SI-SDR within 0.05 dB, higher on some files and lower on
+  others. A longer overlap only moves the same curve later.
 - The `irm` target needs the noise, and takes it as `noisy - reference` in the
   time domain. That is exact for anything `kudio.Synthesizer` mixed, and wrong
   for a corpus whose noisy and clean files are separate recordings rather than
   a sum. In a reverberant dataset the reference has to be the reverberant
   target, or the room's tail is handed to the noise -- see
   `reverberant_target` above.
+
+### Since 1.0
+
+kudio 4.0.0 is the floor: `evaluate` hands the test split to its
+`score_dataset`. The enhanced files go to `runs/<name>/enhanced/`, and the
+table, with its intervals and tests, goes beside `report.csv`, which keeps
+its columns and now takes its means from the table. kudio 4.0 gives PESQ a
+pair of two lengths whole, so such a pair can score differently from 1.0;
+kudio's changelog has the details.
+
+Configs and run directories from 1.0 load as they are. Every new setting,
+`audio.pad_mode`, `audio.compress`, `data.prepared`, `data.crop_seconds`,
+`train.num_workers`, `train.grad_clip` and the `loss` section, defaults to
+what changes nothing on the log-power path, and that path trains as it did.
+`train.grad_clip` is refused there rather than ignored.
+
+`denoise` given a path that is neither a run nor a published name prints why
+and exits 1, where it used to end in a traceback.
 
 ### Since 0.2.0
 
@@ -745,6 +915,10 @@ what GitHub shows under "Cite this repository". `evaluate` writes
 architecture you trained, then kudio and every metric in the table, each
 once, under the keys the table lists. `kudioenhance.models.model_bibtex("crn")`
 gives an architecture's entries on their own.
+
+Work that uses the published weights should also credit the data they were
+trained on, which its CC BY 4.0 licence asks for; each model card has the
+BibTeX for the architecture and the dataset.
 
 ## Related
 

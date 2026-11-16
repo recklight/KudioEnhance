@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use KudioEnhance in your research, please cite it as below."
 title: "KudioEnhance"
-abstract: "Train and run learned speech-enhancement (denoising) models on top of the kudio audio toolkit."
+abstract: "Train and run learned speech-enhancement (denoising) models on top of the kudio audio toolkit: five models on the log-power spectrogram and GTCRN on the complex spectrum, with GTCRN weights trained on VoiceBank-DEMAND on the CPU."
 type: software
 authors:
   - alias: "RL"
@@ -17,3 +17,38 @@ keywords:
   - deep-learning
   - pytorch
   - spectrogram
+  - gtcrn
+  - voicebank-demand
+# the architecture of the published weights, and the data they were trained
+# on, whose CC BY 4.0 licence asks for the credit
+references:
+  - type: conference-paper
+    title: "GTCRN: A speech enhancement model requiring ultralow computational resources"
+    authors:
+      - family-names: Rong
+        given-names: Xiaobin
+      - family-names: Sun
+        given-names: Tianchi
+      - family-names: Zhang
+        given-names: Xu
+      - family-names: Hu
+        given-names: Yuxiang
+      - family-names: Zhu
+        given-names: Changbao
+      - family-names: Lu
+        given-names: Jing
+    collection-title: "Proc. IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)"
+    start: 971
+    end: 975
+    year: 2024
+    doi: "10.1109/ICASSP48485.2024.10448310"
+  - type: data
+    title: "Noisy speech database for training speech enhancement algorithms and TTS models"
+    authors:
+      - family-names: Valentini-Botinhao
+        given-names: Cassia
+    publisher:
+      name: "University of Edinburgh. School of Informatics. Centre for Speech Technology Research (CSTR)"
+    year: 2017
+    doi: "10.7488/ds/2117"
+    license: CC-BY-4.0
