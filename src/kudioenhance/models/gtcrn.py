@@ -38,19 +38,19 @@ running statistics at inference. The output for frame *t* is settled once
 frame *t* is in.
 
 The paper does not spell out every layer, and what it leaves open is taken
-from the authors' ``gtcrn.py`` (MIT licence): the ERB filters, the channel
-interleave, the widths of the GRUs and the padding. Two choices here are my
-own, and neither changes what the network computes, how many weights it has
-or the range they start from. The depthwise convolutions of the decoder's
-blocks are transposed convolutions of stride 1 there, which are
-convolutions with the kernel flipped, so they are ordinary convolutions
-here; their pointwise convolutions stay transposed, because torch starts a
-transposed 1 x 1 convolution from a different range than an ordinary one.
-And the ERB filters are a buffer rather than two frozen linear layers. The
-repository's count of 48.2K parameters includes those two layers, 2 x 64 x
-192 coefficients; the paper's 23.7K, and
-:func:`~kudioenhance.models.count_params` here, are the weights training
-moves, 23,669 at the default width.
+from the authors' ``gtcrn.py`` (MIT licence, its notice in
+THIRD_PARTY_NOTICES.txt): the ERB filters, the channel interleave, the
+widths of the GRUs and the padding. Two choices here are my own, and neither
+changes what the network computes, how many weights it has or the range they
+start from. The depthwise convolutions of the decoder's blocks are
+transposed convolutions of stride 1 there, which are convolutions with the
+kernel flipped, so they are ordinary convolutions here; their pointwise
+convolutions stay transposed, because torch starts a transposed 1 x 1
+convolution from a different range than an ordinary one. And the ERB filters
+are a buffer rather than two frozen linear layers. The repository's count of
+48.2K parameters includes those two layers, 2 x 64 x 192 coefficients; the
+paper's 23.7K, and :func:`~kudioenhance.models.count_params` here, are the
+weights training moves, 23,669 at the default width.
 
 Unlike the other architectures in the package, this one keeps torch's own
 initialisation and BatchNorm, since GTCRN was trained with them and its

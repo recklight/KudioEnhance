@@ -2,7 +2,22 @@
 
 Notable changes to **KudioEnhance** from 1.0 on. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). What changed
-before 1.0 is in the README's *Since 0.2.0* and *Since 3.5.0* notes.
+before 1.0 is under *Before 1.0* at the end.
+
+## [Unreleased]
+
+### Added
+
+- `THIRD_PARTY_NOTICES.txt`, in the wheel and the sdist beside
+  `LICENSE.txt`: the MIT notice of the GTCRN authors' repository, which
+  `models/gtcrn.py` and the default loss follow.
+
+### Changed
+
+- The README keeps installing, the published weights, the three stages,
+  the results, the models and the two paths; the rest is in
+  `docs/guide.md` and `docs/guide.zh-TW.md`. The notes on what changed
+  before 1.0 are at the end of this file.
 
 ## [2.0.0] - 2026-11-16
 
@@ -89,5 +104,67 @@ log-power path trains as it did.
   run that is still training cannot stop it.
 - `denoise` given a path that is neither a run nor a published name prints
   why and exits 1 instead of a traceback.
+- `train.grad_clip` is refused on the log-power path, in `fit` and before
+  `run` mixes anything, rather than ignored.
 - The `--pesq-scale` help describes `raw` as the narrowband P.862 score
   before the P.862.1 mapping: raw 2.03 is about 1.66 MOS-LQO.
+
+## Before 1.0
+
+### 0.2.0
+
+The models are **native PyTorch**; 0.1 was TensorFlow and Keras 3. The configs
+are unchanged — `train.device` and `train.seed` are new and optional — and so
+are the architectures, down to Keras's initialisation, BatchNorm momentum and
+LSTM forget-gate bias, so a config tuned on 0.1 keeps its meaning on 0.2 —
+though not its exact numbers, since the two frameworks' kernels differ.
+
+The weights are not. A run directory trained by 0.1 holds `ddae.keras` and no
+`ddae.pt`, and `Enhancer.load` says so and asks for a retrain rather than
+reporting a missing file. The config and the frozen splits in it can be
+reused as they are:
+
+```bash
+kudioenhance train -c runs/exp1/config.yaml -n exp1
+```
+
+`fit` returns the curves as a plain dict instead of a Keras `History`, and
+`compile_model` is a deprecated no-op kept so 0.1-era scripts that call
+`fit(compile_model(...))` still run. `build_callbacks` is gone, and importing
+it fails: `fit` does the checkpointing, the early stopping and the
+learning-rate halving itself, so code that built Keras callbacks for
+`model.fit` calls `kudioenhance.train.fit` instead.
+
+`train.batch_size` has to be 2 or more for `ddae`, and training says so before
+it reads any audio; a `ddae` training set of a single frame is refused too.
+Its BatchNorm takes a variance over the batch, and one example has none. 0.1
+accepted a batch size of 1, but Keras normalised each unit to a constant
+there, so nothing below the last BatchNorm ever trained. The sequence models
+still train on a batch of one window.
+
+The normalisation statistics are now summed in float64 in memory as well as
+streamed, so the same training set gives a `stats.npz` a little different
+from 0.1's: a few parts in 10⁵ on an hour of audio, less on a smaller set.
+
+Training goes through `build_dataset` instead of `build_arrays`, so a
+frame-wise model's context is no longer stacked for the whole set in memory;
+the run is the same to the last digit. `fit` takes the dataset in place of
+`x` with `y=None`, and still takes arrays. `train.streaming` is new, and
+`train.shuffle_buffer`, which was in the config but read by nothing, now
+sizes the streamed shuffle — and only that.
+
+Two architectures are new, `crn` and `unet`, and `model.units` now defaults
+to `null`, meaning the architecture's own widths. A config that sets `units`
+builds what it did, and so does one that left it out: `ddae`, `blstm` and
+`conv_ae` still default to `[1024, 1024, 1024]`. Code that reads
+`cfg.model.units` directly can now find `None` there;
+`kudioenhance.models.resolve_units(cfg)` returns a copy with the widths
+spelled out.
+
+### On kudio 3.5.0
+
+`Pair`, `save_manifest`, `load_manifest` and `split_pairs` now come from
+**kudio** — nothing in them was specific to denoising. The JSON on disk is
+unchanged and the names are still importable from `kudioenhance.data`, but
+kudio's `split_pairs` is stricter: `val_split + test_split >= 1.0` raises
+instead of quietly handing everything to training.

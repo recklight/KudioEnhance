@@ -41,6 +41,26 @@ def test_citation_cff_names_the_version_the_package_reports():
     assert isinstance(released, datetime.date)
 
 
+def test_the_gtcrn_authors_notice_ships_with_the_package():
+    """gtcrn.py and the default loss follow the GTCRN authors' MIT-licensed
+    code, whose licence asks for its notice in every copy: the wheel and the
+    sdist carry what license-files lists."""
+    import re
+
+    root = SRC.parent
+    pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+    listed = re.search(r"^license-files = \[(.*)\]$", pyproject, re.M)
+    assert listed, "pyproject.toml has no license-files line"
+    files = re.findall(r'"([^"]+)"', listed.group(1))
+    assert "THIRD_PARTY_NOTICES.txt" in files
+    notice = (root / "THIRD_PARTY_NOTICES.txt").read_text(encoding="utf-8")
+    assert "Copyright (c) 2024 Rong Xiaobin" in notice
+    assert ("The above copyright notice and this permission notice shall be "
+            "included in all") in " ".join(notice.split())
+    for module in re.findall(r"src/kudioenhance/[\w/]+\.py", notice):
+        assert (root / module).is_file(), module
+
+
 def test_importing_the_package_does_not_import_torch(tmp_path):
     """Configs, features and the dataset tooling are useful on a machine
     with no deep-learning framework at all, and cheap to import on one that

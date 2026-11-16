@@ -33,7 +33,8 @@ doi:10.1109/TASLP.2019.2915167.
 X. Rong, T. Sun, X. Zhang, Y. Hu, C. Zhu and J. Lu, "GTCRN: A speech
 enhancement model requiring ultralow computational resources", ICASSP 2024,
 pp. 971-975, doi:10.1109/ICASSP48485.2024.10448310; the loss it trains with
-is ``loss.py`` in its repository, github.com/Xiaobin-Rong/gtcrn.
+is ``loss.py`` in its repository, github.com/Xiaobin-Rong/gtcrn (MIT
+licence, its notice in THIRD_PARTY_NOTICES.txt).
 
 K. Wilson, M. Chinen, J. Thorpe, B. Patton, J. Hershey, R. A. Saurous,
 J. Skoglund and R. F. Lyon, "Exploring tradeoffs in models for low-latency

@@ -9,7 +9,7 @@ description = "Train and run learned speech-enhancement (denoising) models on to
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
-license-files = ["LICENSE.txt"]
+license-files = ["LICENSE.txt", "THIRD_PARTY_NOTICES.txt"]
 authors = [{ name = "RL" }]
 keywords = [
     "speech-enhancement", "denoising", "audio", "deep-learning",

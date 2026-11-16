@@ -21,6 +21,8 @@
 
 模型分兩條路徑。其中五個在 **log-power 頻譜域** 運作，並沿用含噪訊號的相位——這是標準的「只處理幅度」增強做法。特徵擷取與重建都經過 `kudio`，所以模型看到的，和任何以 kudio 為基礎的工具產生的完全相同。第六個 `gtcrn` 讀**複數頻譜**、輸出複數遮罩、用波形訓練。它只有 23,669 個權重，CPU 就訓練得動，在 VoiceBank-DEMAND 上訓練好的權重也有公開（見「預訓練權重」）。「兩條路徑」一節把兩者並排比較，「VoiceBank-DEMAND 上的結果」一節有兩者的分數。
 
+這一頁講安裝、公開的權重、三個階段怎麼跑和結果。其餘的在[使用指南](https://github.com/recklight/KudioEnhance/blob/master/docs/guide.zh-TW.md)：`evaluate` 寫出什麼、模型和兩條路徑的細節、房間與通道、串流、run 目錄和專案結構。
+
 ## 安裝
 
 ```bash
@@ -119,13 +121,7 @@ kudioenhance evaluate -c config.yaml -n exp1   # 評分（--full 加上 PESQ、S
 
 每個階段讀取前一個階段寫出的結果，所以可以不重新混音就重新訓練，或不重新訓練就重新評估。
 
-### `evaluate` 寫出什麼
-
-`evaluate` 把測試集的每個檔案增強後寫到 `runs/exp1/enhanced/`，存成 32 位元浮點，評分的對象就是模型輸出的原樣。接著把三邊交給 `kudio.score_dataset`：增強檔對乾淨檔評分，noisy 檔當 baseline。run 目錄裡除了 `report.csv`，還有結果表的三種格式 `results.md`、`results.tex`、`results.json`，以及 `results.bib`，裡面是 kudio 和表上每個指標的 BibTeX。表的每一列是 noisy 輸入的平均、增強後的平均和兩者的差，各附 95% BCa 區間，再來是這個差的雙尾符號翻轉檢定，和對所有列做 Holm 調整後的 p 值。表下的 signature 記下 kudio 版本、取樣率、每個指標的設定和背後套件的版本，數字是怎麼算出來的都查得回去。
-
-不加 `--full` 時評分段落 SNR、SI-SDR 和 SNR，只需要 numpy。`--full` 再加上 PESQ、CSIG/CBAK/COVL、STOI 和 SDR，沒裝的就略過並發出警告。`--metrics pesq,stoi,si_sdr` 用 kudio 的名稱指定，只評這幾個。`--dnsmos-dir` 加上 DNSMOS P.835 和 P.808；這需要 `pip install "kudio[dnsmos]"`，以及 [microsoft/DNS-Challenge](https://github.com/microsoft/DNS-Challenge) 的 ONNX 模型，kudio 沒有附。`--jobs 4` 一次評四個檔。
-
-同一位說話者的句子彼此不獨立，所以檔名帶得出說話者時（像 VCTK 的 `p232_001.wav`），區間按整位說話者重抽。這要有夠多說話者：少於 10 位，區間會明顯達不到 95%，在 kudio 的模擬裡只有 2 位時，區間涵蓋真值的比例只有一半。VoiceBank-DEMAND 的測試集只有 2 位，p232 和 p257，所以這時區間改按句子重抽，表下會寫一行說明：區間反映的是這兩位說話者的其他句子，不代表第三位說話者。`--speakers` 接一個正規表示式，第一個群組就是說話者；給 `''` 則不分說話者。
+`evaluate` 把增強後的測試集寫到 `runs/exp1/enhanced/`，逐檔分數寫到 `report.csv`，結果表（附 95% 區間、符號翻轉檢定和 kudio 的 signature）寫成 `results.md`、`.tex`、`.json` 和 `.bib`。`--full` 加上 PESQ、CSIG/CBAK/COVL、STOI 和 SDR，`--dnsmos-dir` 加上 DNSMOS；各個選項和區間怎麼重抽，見[使用指南](https://github.com/recklight/KudioEnhance/blob/master/docs/guide.zh-TW.md)的「`evaluate` 寫出什麼」。
 
 ## VoiceBank-DEMAND 上的結果
 
@@ -142,7 +138,7 @@ kudioenhance evaluate -c config.yaml -n exp1   # 評分（--full 加上 PESQ、S
 - SSNR 是 Loizou `composite.m` 的段落 SNR，也就是 `kudio.composite(...).segsnr`，這個測試集的論文印的就是這一欄。`evaluate` 表上的 segSNR 是 kudio 的 `segsnr`，框法不同，noisy 檔是 1.56。
 - Noisy 那一列就是公開的那一列：1.97、2.44、1.68、0.921、8.45，CSIG 與 COVL 約低 0.01。這裡的 16 kHz 檔是 32 位元浮點；CMGAN 那一列的逐檔 log 對得上的是加了抖動的 16 位元檔，它的底噪會讓接近無聲的框裡的 CSIG、COVL 變動。
 - `unet` 和 `crn` 走 log-power 路徑、`irm` 目標，`n_fft: 512`、`hop_length: 256`、64 幀視窗、batch 16、最多 40 個 epoch、patience 8、串流讀檔。兩個同時訓練、各用 4 個執行緒：`crn` 跑 24 個 epoch 後停（最佳在第 16），10.5 小時；`unet` 跑滿 40 個（最佳在第 39，還在進步），16.3 小時。
-- `gtcrn` 用「波形路徑：`gtcrn`」一節的設定、2 個執行緒訓練：61 個 epoch 後停（最佳在第 51），14 小時 45 分。
+- `gtcrn` 用[使用指南](https://github.com/recklight/KudioEnhance/blob/master/docs/guide.zh-TW.md)「波形路徑：`gtcrn`」一節的設定、2 個執行緒訓練：61 個 epoch 後停（最佳在第 51），14 小時 45 分。
 
 同一個測試集上公開的輕量模型結果，照 GTCRN 論文和它的 repo 印的：
 
@@ -188,7 +184,7 @@ data:
 
 model:
   name: ddae                # ddae | blstm | conv_ae | crn | unet | gtcrn
-  target: spectrum          # spectrum | irm  -- 見「網路被要求輸出什麼」
+  target: spectrum          # spectrum | irm  -- 見使用指南的 log-power 路徑
   context: 2                # 逐幀模型：前後各堆疊幾幀進輸入
   n_frames: 64              # 序列模型：每個訓練視窗的幀數
   units: null               # 各層寬度；null = 架構的預設值
@@ -206,7 +202,7 @@ train:
   shuffle_buffer: 0         # 僅串流模式：保留多少樣本用來打亂
 ```
 
-每個鍵都是有型別的 dataclass 欄位。打錯字會在載入時失敗並指出是哪個鍵——不會在三個階段之後悄悄改用預設值。`gtcrn` 另有幾個自己的鍵和一個 `loss` 段，列在「波形路徑：`gtcrn`」一節。
+每個鍵都是有型別的 dataclass 欄位。打錯字會在載入時失敗並指出是哪個鍵——不會在三個階段之後悄悄改用預設值。`gtcrn` 另有幾個自己的鍵和一個 `loss` 段，列在[使用指南](https://github.com/recklight/KudioEnhance/blob/master/docs/guide.zh-TW.md)的「波形路徑：`gtcrn`」一節。
 
 ## 模型
 
@@ -232,15 +228,7 @@ unet        2-D U-Net over time and frequency, non-causal (Ronneberger et al. 20
 | `unet` | `(N, n_frames, bins)` | 否——約往後看 50 幀 | 時間與頻率上的 2-D U-Net，架構依 Ronneberger 等人的 *U-Net: Convolutional networks for biomedical image segmentation*（MICCAI 2015），用在頻譜上、輸出遮罩的做法同 Jansson 等人的 *Singing voice separation with deep U-Net convolutional networks*（ISMIR 2017）：卷積區塊，往下時兩軸都減半，往上時以跳接接回。適合整檔離線增強；在預設寬度下約五十萬個參數，也是這裡最小的 log-power 模型。 |
 | `gtcrn` | 複數頻譜 `(N, bins, frames)` | **是** | 依 Rong 等人的 GTCRN（*GTCRN: A speech enhancement model requiring ultralow computational resources*，ICASSP 2024）：低頻點保留、高頻點併成 ERB 頻帶，接分組時間卷積與遞迴注意力、分組雙路徑 GRU 網路，輸出複數比值遮罩。23,669 個權重，16 kHz 音訊每秒在矩陣乘法與卷積裡 26.3M 次乘加（照 GTCRN repo 的數法，連偏置、正規化、激活函數和 GRU 閘門的運算一起算，是 33.0M）。運算資源很少、或相位也要估計時選它。 |
 
-序列模型用固定長度的視窗訓練，但模型本身沒有固定時間軸長度，所以同一組權重可以一次處理整段語句。兩個 2-D 模型也接受任何 `n_fft`：它們在內部把時間與頻率補到減半所需的大小，再裁回來。
-
-**因果**的意思是某一幀的輸出只取決於該幀及更早的幀——`crn` 與 `gtcrn` 的卷積只在過去那一側補值、沿時間的遞迴層只往前跑，兩者都有測試把關。這是即時版本需要的性質，但本套件不做串流：`Enhancer` 一次增強整個檔案（波形路徑上的長檔案一次 30 秒），而 STFT 本身也會帶來一個視窗的延遲。
-
-**`model.units`** 是各層寬度的列表：全連接層的單元數、LSTM 的單元數、卷積的濾波器或通道數。設為 `null` 時採用上面列出的架構預設值。寬度 1024 對全連接層很合理，對 2-D 卷積卻很荒謬（它的每個通道都是一整張時頻圖），所以預設值屬於架構本身。設成列表就能自行指定寬度。訓練會把實際建出的寬度寫進 run 的 `config.yaml`，即使之後的版本改了預設值，舊的 run 仍能載入。
-
-`crn` 的 LSTM 會讀取每層把頻率點減半後剩下的所有通道與頻率點，所以大小隨 `n_fft` 增長：`n_fft: 256` 時約 1.8M 參數、512 時 5.5M、1024 時 19M。`n_fft` 較大時，多加一層再減半一次——`units: [16, 32, 64, 64, 64, 64]` 能把 1024 時的大小降回 5.6M。`unet` 的大小與頻率點數無關。
-
-新增架構只需要一個建構函式加上一筆 `REGISTRY` 項目——沒有要在三個地方擴充的 `if/elif` 鏈。項目中的 `default_units` 就是 `units: null` 時建出的寬度；省略它的話，架構會得到前三個模型共用的 1024 寬堆疊。
+序列模型用固定視窗訓練、一次處理整段語句，`crn` 和 `gtcrn` 不往後看，`model.units` 設定各層寬度。其餘細節、`crn` 的大小怎麼隨 `n_fft` 變，以及怎麼新增架構，見[使用指南](https://github.com/recklight/KudioEnhance/blob/master/docs/guide.zh-TW.md)的「模型細節」。
 
 ## 兩條路徑
 
@@ -259,108 +247,7 @@ unet        2-D U-Net over time and frequency, non-causal (Ronneberger et al. 20
 
 兩條路徑讀同一個 `audio` 段，框法也相同：預設下，波形路徑用 `torch.stft` 算出的複數值和 kudio 的差在峰值的百萬分之一以內。`train`、`evaluate`、`denoise` 和 `Enhancer` 兩種都收；架構在 registry 裡的那一筆說它走哪條路徑。
 
-### log-power 路徑
-
-`ddae`、`blstm`、`conv_ae`、`crn` 和 `unet` 看的是 kudio 算的 log-power 頻譜，用在訓練集上擬合的統計量標準化，統計量存成權重旁邊的 `stats.npz`。它們學乾淨的頻譜或一個遮罩，增強後的幅度配上含噪的相位還原回去。訓練集放在記憶體或串流讀取（見「訓練資料：放在記憶體或串流」）。
-
-#### 網路被要求輸出什麼
-
-`model.target` 與 `model.name` 是分開的選擇，這條路徑的每種架構都支援兩種：
-
-| 目標 | 網路輸出 | |
-|---|---|---|
-| `spectrum` | 直接輸出乾淨的 log-power 頻譜 | 輸出無界；除了形狀，還得學會*音量* |
-| `irm` | 介於 `[0, 1]` 的**理想比例遮罩** | 有界，所以 sigmoid 不會產生不可能的答案，而音量來自輸入 |
-
-```yaml
-model:
-  name: ddae
-  target: irm
-```
-
-遮罩是 `sqrt(|S|² / (|S|² + |N|²))`——每個時頻點中有多少是語音——在對數域中套用它只是一個加法，所以網路永遠只需要決定*要保留多少*。
-
-**在本專案自己的冒煙測試語料上，用小型 `ddae` 訓練三個 epoch 的實測：**
-
-| 目標 | SI-SDR |
-|---|---|
-| `spectrum` | +0.05 → **−7.59 dB** |
-| `irm` | +0.05 → **+2.61 dB** |
-| 理想（oracle）遮罩 | −3.02 → **+14.16 dB** |
-
-訓練不足的頻譜模型還沒學會音量，所以輸出又大聲又錯；訓練不足的遮罩模型已經有用，因為它最糟也只是保留或去掉原本就有的東西。oracle 那一列是這個目標所追求的上限。
-
-這是小模型配小語料，不是基準測試——但它把「為什麼通常選遮罩目標」在大約二十秒內具體呈現出來。
-
-`gtcrn` 一律輸出複數遮罩，不讀 `model.target`。
-
-### 波形路徑：`gtcrn`
-
-`gtcrn` 的訓練方式和另外五個不同。它讀含噪的複數頻譜、輸出複數比值遮罩，所以給回來的相位是它自己估的；它從波形學，每個 epoch 從每一對檔案重新切一段；損失算在它輸出的頻譜和該頻譜還原的波形上，所以不需要擬合正規化統計量。GTCRN 自己的 STFT，加上論文給 VoiceBank-DEMAND 的設定，寫成設定檔是這樣：
-
-```yaml
-audio:
-  sr: 16000
-  n_fft: 512
-  hop_length: 256
-  win_length: 512
-  window: sqrt_hann         # Hann 窗開根號，分析與合成都用它
-  pad_mode: reflect         # torch.stft 補兩端的方式，GTCRN 的做法
-  compress: null            # 模型看到的是線性尺度的頻譜
-data:
-  prepared: data/vbd16k
-  crop_seconds: 2.0         # 每個 epoch 在每對檔案的新位置切這麼長
-model:
-  name: gtcrn               # units: [16]，論文的通道數
-train:
-  batch_size: 4
-  learning_rate: 0.001
-  patience: 10              # 5 個 epoch 沒進步時學習率減半
-  grad_clip: 3.0            # 梯度範數上限；null 不裁剪
-  num_workers: 2            # 讀檔與切段的行程數
-```
-
-沒寫 `loss` 段時，損失就是 GTCRN repo 裡的那一個：壓縮到 `|S|^0.3`、保留相位的頻譜 MSE 乘 30，壓縮後幅度的 MSE 乘 70，再加 0.1 倍以 dB 計的負 SI-SNR，算 SI-SNR 前不去均值。這一段的鍵 `complex_mse`、`magnitude_mse`、`time_l1`、`neg_si_snr`、`compress`、`zero_mean` 可以改權重、指數和去均值與否。
-
-這條路徑的 run 在第一個 epoch 之前寫 `config.yaml`，之後每個 epoch 寫目前最好的權重、`resume.pt`、`history.json` 和 `progress.json`。中途停掉的話，同一行指令加 `--resume` 就從最後一個跑完的 epoch 接著跑；只要 torch 的執行緒數相同，在 CPU 上續跑的結果和沒中斷過的逐位元相同。`--resume --epochs N` 可以延長已經跑完的 run。續跑時只有 `train.epochs`、`train.patience`、`train.num_workers`、`train.device`、`train.out_dir` 可以改，其他的改了會被拒絕並列出是哪些鍵，因為那已經是另一個 run。`progress.json` 寫著 run 跑到哪：epoch、損失和各項、目前最好的 epoch、學習率、每個 epoch 的秒數和剩餘時間。還在訓練的 run 就能拿去 evaluate 或降噪，用的是目前最好的那個 epoch。
-
-`Enhancer` 對 30 秒以內的檔案一次處理完。更長的檔案切成 30 秒、彼此重疊 1 秒的段，在接縫處交叉淡化，所以檔案再長，記憶體用量都有上限。最後一段停在檔案結束的地方，所以檔尾經過 STFT 的方式和整檔處理時完全一樣。
-
-在 VoiceBank-DEMAND 上用這組設定、2 個 CPU 執行緒訓練了 14 小時 45 分：61 個 epoch，最佳在第 51 個，每個約 14.5 分鐘。公開的權重就是這一組，分數在「VoiceBank-DEMAND 上的結果」。
-
-## 房間
-
-噪音是加性的，房間是卷積性的，而真實錄音兩者都有。`data.rt60` 會在混入噪音之前先讓語音經過一個房間：
-
-```yaml
-data:
-  snr_db: [-5, 0, 5]
-  rt60: [0.3, 0.6, 0.9]     # 第四個軸——在 `inc` 模式下檔案數 ×3
-  drr_db: 0.0               # +10 是近距離麥克風，0 是一兩公尺
-```
-
-此時 SNR 是相對於**含殘響**的語音來量的，因為在麥克風那裡和噪音競爭的就是它。
-
-**預設情況下，乾淨檔仍是目標。** 用這種方式訓練的模型被要求同時去除房間與噪音，這是標準做法，也是值得刻意選擇、而不是事後才發現的設定。
-
-`reverberant_target: true` 會改變這點。`kudio.Synthesizer` 會在每個混音旁的 `TARGETS/` 寫出「含殘響但乾淨」的訊號——同一段語音、保留房間——訓練則要求模型去除噪音並**保留**房間。這是另一個比較容易的問題，而且在實際部署環境保有房間時才是誠實的設定。
-
-它也讓 `irm` 目標變得正確。遮罩是由 `noisy - reference` 建出來的；語音上有房間時，乾的乾淨檔並不是實際被混進去的訊號，於是這個減法把殘響算成了*噪音*，遮罩就會要求模型把房間自己的殘響尾巴當成噪音去掉。改用含殘響的目標後，這個減法得到的才又是真正的噪音。
-
-每個混音都會記錄它所用的房間——`Pair.rt60`，檔名中也有（`speech_white_0dB_rt600ms.wav`），所以 manifest 會說明每個樣本被要求承受什麼。
-
-## 通道
-
-第三種劣化，也是既非加性也非卷積性的那一種：編解碼器做量化、傳輸鏈路掉封包、轉換器丟掉位元。
-
-```yaml
-data:
-  channel: telephone        # 8 kHz 下 300-3400 Hz，經過 G.711
-```
-
-可選 `telephone`、`telephone_a`、`voip`（G.711，5% 封包以每段四個的方式遺失並保留前一個封包）、`mu_law`、`a_law`。它套用在**混音**上，噪音也包含在內，因為線路傳送的是麥克風收到的一切。
-
-**它不是一個軸。** 與 `snr_db` 和 `rt60` 不同，它對整個資料集固定不變，也不會出現在檔名中：一個語料要嘛是透過電話線錄的，要嘛不是。`Pair.channel` 記錄用了哪種鏈路，而目標不會經過它——要求模型重現 G.711 並不是降噪。
+兩條路徑各自怎麼訓練，見[使用指南](https://github.com/recklight/KudioEnhance/blob/master/docs/guide.zh-TW.md)：log-power 路徑的 `spectrum` 與 `irm` 目標，以及波形路徑的設定、損失、`--resume`、`progress.json` 和分段推論。
 
 ## 資料集
 
@@ -371,6 +258,8 @@ data:
 - **[ESC-50](https://github.com/karolpiczak/ESC-50)**——環境噪音，適合非語音的目標。
 
 設定 `seed` 後混音即可重現：相同的噪音起點、相同的配對、相同的切分。
+
+`synth` 也能讓語音先經過房間（`data.rt60`、`data.drr_db`），再讓混音經過電話或 VoIP 線路（`data.channel`）；兩者對目標的影響，見[使用指南](https://github.com/recklight/KudioEnhance/blob/master/docs/guide.zh-TW.md)的「房間」和「通道」。訓練集大到放不進記憶體時可以串流讀取，見使用指南的「訓練資料：放在記憶體或串流」。
 
 ### VoiceBank-DEMAND
 
@@ -388,40 +277,6 @@ kudioenhance prepare path/to/zips data/vbd16k
 data:
   prepared: data/vbd16k
 ```
-
-## 訓練資料：放在記憶體或串流
-
-預設情況下，訓練會把特徵放在記憶體中：只計算一次，每個 epoch 都把整個資料集完整打亂。對這類模型通常使用的數十小時資料而言，這是正確的選擇。
-
-逐幀模型（`ddae`）看的是每一幀加上前後 `context` 個鄰幀，過去事先為整個資料集堆疊這些鄰幀，會讓記憶體乘上 `2·context + 1` 倍——`context: 5` 時是十一倍。現在訓練集每一幀只存一份，放在 `kudio.ContextFrames` 中，在批次抽到某些列時才把它們的鄰幀堆起來。得到的列完全相同，訓練結果也相同：有測試確保它與堆疊矩陣逐列一致，而且用兩者訓練出的權重一模一樣。序列模型的視窗本來就不會比特徵大。
-
-剩下的就是特徵本身，輸入與目標：在 16 kHz、預設 STFT 下，每小時訓練音訊約 0.46 GB。放不下時就用串流：
-
-```yaml
-train:
-  streaming: true
-  shuffle_buffer: 25000     # 約一百個 4 秒檔案的 ddae 幀數
-```
-
-這時什麼都不會常駐記憶體。每個 epoch 以新的順序重新讀取訓練檔，邊讀邊計算每個檔的樣本——與記憶體模式逐列相同的樣本。代價是每個 epoch 都要把音訊走一遍：讀檔、重新取樣與 STFT，由訓練行程在批次之間完成。
-
-- **正規化**在第一個 epoch 之前以一次額外的掃描來擬合，一次處理一個檔案。用的是 kudio 的公式——平均值、母體標準差，以及加上同樣的 `1e-8`——並以 float64 累加；記憶體模式也以相同方式、一次一個檔案的頻譜來擬合，所以兩種模式使用的統計量逐位元相同。（kudio 自己的 `Standardizer.fit` 以 float32 累加，在一小時的幀上會與真實統計量相差約十萬分之幾；這裡的誤差在千萬分之一以內。）
-- **驗證**也採串流，依 manifest 的順序，批次的切分位置與記憶體模式完全相同，所以分數也和記憶體模式一樣。
-- **打亂緩衝區。** 每個檔案的樣本會加入一個池子，只要池中至少還會留下 `shuffle_buffer` 個樣本，每個批次就從池中所有樣本隨機抽取；檔案讀完後，剩下的以隨機順序送出。對 `ddae` 而言一個樣本是一幀，對序列模型則是一個 `n_frames` 視窗。要混得好，讓緩衝區涵蓋大約一百個檔案：典型檔案幀數的一百倍，或一個檔案中視窗數的一百倍。記憶體成本就是這麼多個輸入與目標：`ddae` 在 257 個頻率點、`context: 2` 時每個樣本 6 KB，64 幀視窗則是 132 KB。
-- **`shuffle_buffer: 0` 不保留任何樣本。** 檔案仍以新的順序讀入，每個檔案內的樣本也會打亂，但每個批次只從正在讀取的檔案以及先前抽剩的（少於一個批次）中抽取——也就是同一段錄音的相鄰幀，訓練效果較差。要求這樣做時訓練會發出警告。記憶體模式不使用這個設定。
-- **可重現。** 檔案順序與每一次從池中抽取都來自 `train.seed`，所以串流的訓練在 CPU 上可以精確重現到最後一位，和記憶體模式一樣。不過它與記憶體模式是不同的訓練：樣本相同，順序不同。
-
-兩種模式都經過 `kudioenhance.data.build_dataset`，而 `train.fit` 接受它的回傳值來取代陣列：
-
-```python
-from kudioenhance.data import build_dataset
-from kudioenhance.train import fit
-
-train_set, std = build_dataset(train_pairs, cfg, sequence=False, fit=True)
-history = fit(model, train_set, None, cfg, "runs/exp1/ddae.pt")
-```
-
-`build_arrays` 仍會回傳單純的堆疊矩陣，給需要它的程式使用。
 
 ## Python API
 
@@ -451,61 +306,7 @@ kudio.compare_enhancers(y, sr, ['logmmse', ('exp1', enh.enhance)],
 
 `Enhancer.load` 從同一個 run 目錄讀取模型、它的正規化統計量，**以及**產生它們的 STFT 幾何參數，所以推論永遠不會悄悄與訓練不一致。
 
-### run 目錄裡有什麼
-
-```
-runs/exp1/
-├── config.yaml      # 訓練時的實驗設定
-├── ddae.pt          # 權重：<model.name>.pt
-├── stats.npz        # 特徵經過的 Standardizer（gtcrn 沒有）
-├── history.json     # 訓練曲線（有 matplotlib 時另有 history.png）
-├── resume.pt  progress.json   # gtcrn：最近一個 epoch 的狀態，以及 run 跑到哪
-├── train.json  val.json  test.json  manifest.json
-├── enhanced/        # evaluate 之後產生：模型輸出的測試集
-├── report.csv       # 逐檔分數
-└── results.md  results.tex  results.json  results.bib   # 結果表
-```
-
-`.pt` 檔是一個單純的字典——格式標記、訓練時的架構與目標，以及一個 `state_dict`——以 `torch.load(..., weights_only=True)` 讀回。裡面沒有任何被 pickle 的類別，所以打開別人傳來的 run 不會執行他們的程式碼；`Enhancer.load` 會先依 `config.yaml` 重建網路，再把權重灌進去。它也永遠是最好的那個 epoch：每當監控的損失改善時訓練就存檢查點，停止時再把那組權重放回模型。
-
-設定 `train.seed`（或只設 `data.seed`），初始權重、dropout 遮罩與批次順序都由它決定，所以在 CPU 上訓練可以精確重現到最後一位。有些 GPU kernel 不是確定性的，所以在 GPU 上只會非常接近，而非完全相同。
-
-## 專案結構
-
-```
-docs/
-├── images/workflow.png  # README 的圖
-├── workflow.html        # 同一張圖的互動版
-└── models/              # 每組公開權重的模型卡
-src/kudioenhance/
-├── config.py        # 有型別的 dataclass、YAML 讀寫、run 路徑
-├── data.py          # 混音、manifest、切分、訓練集
-├── vbd.py           # VoiceBank-DEMAND：重抽樣、驗證集切分
-├── datasets.py      # torch 看到的訓練集：常駐或串流
-├── features.py      # 頻譜 / 上下文堆疊 / 視窗 / Standardizer
-├── waveform.py      # clean/noisy 配對的隨機裁段、固定種子的 DataLoader
-├── spectral.py      # torch 的複數 STFT、冪次壓縮
-├── losses.py        # 複數、幅度、L1、SI-SNR 損失與加權組合
-├── models/
-│   ├── registry.py      # 名稱 -> 建構函式 + 資料形狀
-│   ├── dense.py         # ddae
-│   ├── recurrent.py     # blstm
-│   ├── convolutional.py # conv_ae
-│   ├── crn.py           # crn
-│   ├── unet.py          # unet
-│   └── gtcrn.py         # gtcrn
-├── train.py         # 訓練迴圈：Adam、檢查點、提早停止
-├── waveform_train.py # 波形路徑的訓練迴圈，中斷了能從停下的地方接著跑
-├── progress.py      # 每個 epoch 重寫的 progress.json 與 history.json
-├── checkpoint.py    # .pt 格式：權重，以及 run 的訓練狀態
-├── inference.py     # Enhancer
-├── pretrained.py    # 公開的權重：清單、快取、SHA-256 核對
-├── evaluate.py      # 測試集交給 kudio.score_dataset，產生結果表
-├── pipeline.py      # 三個階段
-└── cli.py           # kudioenhance
-```
-
-模型建構函式回傳單純的 `torch.nn.Module`；`train.py` 負責優化器、損失函數與迴圈。這樣架構可以被檢視，而不必綁定某種優化設定。
+run 目錄裡有什麼、別人傳來的 `.pt` 檔為什麼可以放心打開，見[使用指南](https://github.com/recklight/KudioEnhance/blob/master/docs/guide.zh-TW.md)的「run 目錄裡有什麼」。
 
 ## 測試
 
@@ -518,9 +319,9 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-共 505 個測試。測試套件會在暫存目錄建立一個很小的合成語料，並在幾秒內跑完整個流程——混音、訓練一個 epoch、增強、評分。需要 PyTorch 的測試會明確要求它，沒安裝時會乾淨地跳過；其餘 204 個仍會執行。
+共 509 個測試。測試套件會在暫存目錄建立一個很小的合成語料，並在幾秒內跑完整個流程——混音、訓練一個 epoch、增強、評分。需要 PyTorch 的測試會明確要求它，沒安裝時會乾淨地跳過；其餘 207 個仍會執行。
 
-遮罩測試檢查的是*公式*，而不只是能不能跑：全是語音時為 1、全是噪音時為 0、功率相等時為 1/√2，而 oracle 遮罩必須真的提升 SI-SDR。這些不成立，就代表目標是錯的，不管損失曲線怎麼說。架構測試也一樣：改動 *t* 之後的任何一幀，`crn` 到 *t* 為止的輸出必須逐位元不變；`unet` 的則必須改變，因為它的說明寫著它是非因果的。`gtcrn` 也用同樣的測試確認不往後看，它的權重逐層數、要等於論文的 23,669，乘加次數逐幀數。訓練集也是：記憶體模式必須逐位元交回堆疊矩陣的列，依 manifest 順序的串流掃描也是，而一個打亂的 epoch 必須讓每個樣本恰好出現一次，並且在相同 seed 下得到相同順序。兩種模式必須以逐位元相同的統計量做正規化。
+測試要守住哪些事，見[使用指南](https://github.com/recklight/KudioEnhance/blob/master/docs/guide.zh-TW.md)的「測試檢查什麼」。
 
 ## 已知限制
 
@@ -528,39 +329,11 @@ pytest -q
 - log-power 模型只處理幅度，相位沿用含噪輸入的相位。`gtcrn` 估的是複數遮罩；時域模型不在這個套件裡。
 - log-power 的序列模型一次處理整個檔案。對 `crn` 和 `unet` 而言，這代表每一幀、每個頻率點、每個通道都有一張特徵圖：在預設寬度下，每分鐘 16 kHz 音訊約需半 GB，所以長錄音請先切段再增強。
 - `gtcrn` 的 GRU 在每一段 30 秒的開頭都從零狀態開始，重疊 1 秒蓋不掉這一點。用公開的權重量，分段輸出和整檔輸出的差，在接縫之後兩秒內約是整個檔 RMS 的 3%，第二到第五秒約 1%，第六到第十秒 0.3–0.6%。分數幾乎不動：把測試集的句子接成四個 96–98 秒的檔，分段輸出的 WB-PESQ 和整檔的差在 0.005 以內、SI-SDR 在 0.05 dB 以內，有的檔高、有的檔低。重疊加長只是把同一條曲線往後推。
-- `irm` 目標需要噪音，並在時域中以 `noisy - reference` 取得。對 `kudio.Synthesizer` 混出來的資料這是精確的，但若語料的 noisy 與 clean 是分開的兩段錄音而不是相加而成，就是錯的。在含殘響的資料集中，reference 必須是含殘響的目標，否則房間的殘響尾巴會被算成噪音——見上面的 `reverberant_target`。
+- `irm` 目標需要噪音，並在時域中以 `noisy - reference` 取得。對 `kudio.Synthesizer` 混出來的資料這是精確的，但若語料的 noisy 與 clean 是分開的兩段錄音而不是相加而成，就是錯的。在含殘響的資料集中，reference 必須是含殘響的目標，否則房間的殘響尾巴會被算成噪音——見[使用指南](https://github.com/recklight/KudioEnhance/blob/master/docs/guide.zh-TW.md)「房間」一節的 `reverberant_target`。
 
-### 1.0 起的變更
+## 變更紀錄
 
-kudio 4.0.0 是下限：`evaluate` 把測試集交給它的 `score_dataset`。增強後的檔案寫到 `runs/<name>/enhanced/`，結果表連同區間與檢定寫在 `report.csv` 旁邊；`report.csv` 的欄位不變，平均值改用表上的數。kudio 4.0 把長度不同的一對整段交給 PESQ，所以這樣的一對分數可能和 1.0 不同，細節見 kudio 的 changelog。
-
-1.0 的設定檔和 run 目錄都能原樣載入。新的設定 `audio.pad_mode`、`audio.compress`、`data.prepared`、`data.crop_seconds`、`train.num_workers`、`train.grad_clip` 和 `loss` 段，預設值在 log-power 路徑上什麼都不改，這條路徑訓練起來和以前一樣。`train.grad_clip` 在這條路徑上給了值會被拒絕，不會默默忽略。
-
-`denoise` 拿到一個既不是 run、也不是公開權重名稱的路徑時，印出原因並以 1 結束，以前是印出 traceback。
-
-### 0.2.0 起的變更
-
-模型改為**原生 PyTorch**；0.1 是 TensorFlow 與 Keras 3。設定檔沒有改變——`train.device` 和 `train.seed` 是新增的選用項目——架構也沒變，連 Keras 的初始化方式、BatchNorm momentum 與 LSTM forget-gate bias 都一樣，所以在 0.1 調好的設定在 0.2 仍保有相同意義——但數字不會完全一樣，因為兩個框架的 kernel 不同。
-
-權重則不同。0.1 訓練出的 run 目錄裡是 `ddae.keras`，沒有 `ddae.pt`，`Enhancer.load` 會明說這點並要求重新訓練，而不是回報找不到檔案。其中的設定與已固定的資料切分可以原樣沿用：
-
-```bash
-kudioenhance train -c runs/exp1/config.yaml -n exp1
-```
-
-`fit` 以一般的 dict 回傳訓練曲線，而不是 Keras 的 `History`；`compile_model` 成為已棄用、不做任何事的函式，保留它是為了讓 0.1 時代呼叫 `fit(compile_model(...))` 的腳本仍能執行。`build_callbacks` 已移除，匯入它會失敗：`fit` 自己處理檢查點、提早停止與學習率減半，所以原本為 `model.fit` 建立 Keras callback 的程式，請改呼叫 `kudioenhance.train.fit`。
-
-`ddae` 的 `train.batch_size` 必須是 2 以上，訓練會在讀取任何音訊之前就指出這點；只有一幀的 `ddae` 訓練集也會被拒絕。它的 BatchNorm 要對批次取變異數，而單一樣本沒有變異數。0.1 接受批次大小 1，但 Keras 在那種情況下會把每個單元正規化成常數，所以最後一個 BatchNorm 之前的層全都沒有被訓練到。序列模型仍可用一個視窗的批次訓練。
-
-正規化統計量現在無論記憶體或串流模式都以 float64 累加，所以同一份訓練集得到的 `stats.npz` 與 0.1 略有不同：一小時音訊上約十萬分之幾，資料集較小時更少。
-
-訓練改經過 `build_dataset` 而不是 `build_arrays`，所以逐幀模型的上下文不再為整個資料集堆疊在記憶體中；訓練結果精確相同。`fit` 可以用資料集取代 `x` 並傳入 `y=None`，也仍接受陣列。`train.streaming` 是新增的；`train.shuffle_buffer` 以前在設定裡卻沒有任何程式讀取，現在用來決定串流打亂的大小——也只用在這裡。
-
-新增兩個架構 `crn` 與 `unet`，`model.units` 的預設值改為 `null`，代表架構自己的寬度。有設定 `units` 的設定檔建出的模型與以前相同，沒設定的也一樣：`ddae`、`blstm` 與 `conv_ae` 的預設仍是 `[1024, 1024, 1024]`。直接讀取 `cfg.model.units` 的程式現在可能拿到 `None`；`kudioenhance.models.resolve_units(cfg)` 會回傳一份把寬度明確寫出的副本。
-
-### 3.5.0 起的變更
-
-`Pair`、`save_manifest`、`load_manifest` 與 `split_pairs` 現在來自 **kudio**——它們沒有任何降噪專屬的東西。磁碟上的 JSON 不變，這些名稱也仍可從 `kudioenhance.data` 匯入，但 kudio 的 `split_pairs` 比較嚴格：`val_split + test_split >= 1.0` 會引發錯誤，而不是悄悄把所有資料都交給訓練。
+每一版改了什麼，以及之前版本的設定檔、run 目錄和腳本要怎麼處理，見 [CHANGELOG.md](https://github.com/recklight/KudioEnhance/blob/master/CHANGELOG.md)（英文）。
 
 ## 引用 KudioEnhance
 
@@ -576,3 +349,5 @@ kudioenhance train -c runs/exp1/config.yaml -n exp1
 ## 授權
 
 MIT——見 [LICENSE.txt](https://github.com/recklight/KudioEnhance/blob/master/LICENSE.txt)。
+
+`gtcrn` 和它的預設損失依照 GTCRN 作者以 MIT 授權釋出的程式碼，他們的授權聲明在 [THIRD_PARTY_NOTICES.txt](https://github.com/recklight/KudioEnhance/blob/master/THIRD_PARTY_NOTICES.txt)。
